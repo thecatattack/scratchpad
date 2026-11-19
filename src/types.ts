@@ -88,6 +88,9 @@ export type StockShape = '' | 'Box Tube' | 'Plate' | 'Tube';
 export type PartStatus =
   | 'Not Started'
   | 'Requested'
+  | 'Needs Drawing'
+  | 'Needs CAM'
+  | 'Ready for Machine'
   | 'In-Progress'
   | 'Denied'
   | 'Shipping'

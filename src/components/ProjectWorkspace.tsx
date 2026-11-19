@@ -560,7 +560,11 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       {p.source === 'In-House'
                         ? p.machines.join(', ') || 'In-House'
                         : p.type === 'COTS'
-                        ? p.vendor
+                        ? `${p.vendor} · ${p.source}${
+                            p.sparesRequested > 0
+                              ? ` (${p.sparesRequested} spares req)`
+                              : ''
+                          }`
                         : p.manufacturer}
                     </div>
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
@@ -688,11 +692,12 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   };
 
   const handleUnsendRequest = async (p: AggregatedPart) => {
+    const nextStatus = p.source === 'Inventory' ? 'Obtained' : 'Not Started';
     try {
       await Promise.all(
         p.sourceParts.map((ref) =>
           updatePart(selectedProject.id, ref.subassemblyId, ref.part.id, {
-            status: 'Not Started',
+            status: nextStatus,
             sparesRequested: 0,
           })
         )
@@ -711,12 +716,22 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
     modalType: 'request-in-house' | 'request-purchased' | 'request-outsourced',
     compact = false
   ) => {
-    if (p.status === 'Requested') {
+    const isPendingInventorySpares =
+      p.source === 'Inventory' &&
+      p.sparesRequested > 0 &&
+      p.totalOrdered === 0 &&
+      (p.status === 'Obtained' || p.status === 'Requested');
+
+    if (p.status === 'Requested' || isPendingInventorySpares) {
       return (
         <button
           type="button"
           onClick={() => void handleUnsendRequest(p)}
-          title="Withdraw request back to Not Started"
+          title={
+            isPendingInventorySpares
+              ? 'Withdraw spare purchase request'
+              : 'Withdraw request back to Not Started'
+          }
           className={`inline-flex items-center gap-1 rounded-lg border border-amber-500/60 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-semibold whitespace-nowrap transition-all active:scale-[0.98] ${
             compact ? 'px-2.5 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
           }`}
@@ -724,6 +739,35 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
           <Undo2 className="w-3 h-3" />
           <span>Unsend</span>
         </button>
+      );
+    }
+
+    if (p.source === 'Inventory') {
+      if (
+        p.status === 'Obtained' ||
+        p.status === 'Not Started' ||
+        p.status === 'Denied'
+      ) {
+        return (
+          <button
+            type="button"
+            onClick={() =>
+              setDetailModal({ type: 'request-more-spares', part: p })
+            }
+            className={`inline-flex items-center gap-1 rounded-lg border border-red-600 text-red-600 dark:text-red-400 hover:bg-red-600/10 font-semibold whitespace-nowrap transition-all active:scale-[0.98] ${
+              compact ? 'px-2.5 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
+            }`}
+          >
+            <Send className="w-3 h-3" />
+            <span>Request Spares</span>
+          </button>
+        );
+      }
+      if (compact) return null;
+      return (
+        <span className="inline-flex items-center px-2 py-1 text-[11px] font-medium text-zinc-400 dark:text-zinc-500 whitespace-nowrap">
+          {p.status}
+        </span>
       );
     }
 
@@ -1165,7 +1209,15 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
           viewMode === 'kanban' ? (
             renderKanban(
               inHouseParts,
-              ['Not Started', 'Requested', 'In-Progress', 'Obtained'],
+              [
+                'Not Started',
+                'Requested',
+                'Needs Drawing',
+                'Needs CAM',
+                'Ready for Machine',
+                'In-Progress',
+                'Obtained',
+              ],
               editable
                 ? (p) => renderRequestOrUnsendAction(p, 'request-in-house', true)
                 : undefined
@@ -1278,7 +1330,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
           viewMode === 'kanban' ? (
             renderKanban(
               purchasedParts,
-              ['Not Started', 'Requested', 'Shipping', 'Obtained'],
+              purchasedParts.some((p) => p.status === 'Denied')
+                ? ['Not Started', 'Requested', 'Shipping', 'Denied', 'Obtained']
+                : ['Not Started', 'Requested', 'Shipping', 'Obtained'],
               editable
                 ? (p) => renderRequestOrUnsendAction(p, 'request-purchased', true)
                 : undefined
@@ -1296,6 +1350,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       <th className="py-3 px-4 font-semibold">Part Name</th>
                       <th className="py-3 px-3 font-semibold">Part Number</th>
                       <th className="py-3 px-3 font-semibold text-right">Qty</th>
+                      <th className="py-3 px-3 font-semibold">Source</th>
                       <th className="py-3 px-3 font-semibold">Vendor</th>
                       <th className="py-3 px-3 font-semibold">Status</th>
                       <th className="py-3 px-4 font-semibold text-right">Actions</th>
@@ -1313,7 +1368,13 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         </td>
                         <td className="py-2.5 px-3 font-mono-tabular text-right font-semibold">
                           {p.quantity}
+                          {p.sparesRequested > 0 ? (
+                            <span className="block text-[10px] font-normal text-amber-600 dark:text-amber-400">
+                              +{p.sparesRequested} spares req
+                            </span>
+                          ) : null}
                         </td>
+                        <td className="py-2.5 px-3">{p.source}</td>
                         <td className="py-2.5 px-3">{p.vendor || '—'}</td>
                         <td className="py-2.5 px-3">
                           <StatusLabel status={p.status} />
@@ -1353,12 +1414,35 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
           viewMode === 'kanban' ? (
             renderKanban(
               outsourcedParts,
-              ['Not Started', 'Requested', 'In-Progress', 'Obtained'],
+              (
+                [
+                  'Not Started',
+                  'Requested',
+                  ...(
+                    [
+                      'Needs Drawing',
+                      'Needs CAM',
+                      'Ready for Machine',
+                      'Shipping',
+                      'Denied',
+                    ] as PartStatus[]
+                  ).filter((st) => outsourcedParts.some((p) => p.status === st)),
+                  'In-Progress',
+                  'Obtained',
+                ] as PartStatus[]
+              ),
               editable
                 ? (p) =>
                     p.costsMoney ? (
                       renderRequestOrUnsendAction(p, 'request-outsourced', true)
                     ) : (
+                      [
+                        'Needs Drawing',
+                        'Needs CAM',
+                        'Ready for Machine',
+                        'Shipping',
+                      ] as PartStatus[]
+                    ).includes(p.status) ? null : (
                       <select
                         value={p.status}
                         onChange={(e) => {
@@ -1439,7 +1523,16 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                           </button>
                         </td>
                         <td className="py-2.5 px-3">
-                          {editable && !p.costsMoney ? (
+                          {editable &&
+                          !p.costsMoney &&
+                          !(
+                            [
+                              'Needs Drawing',
+                              'Needs CAM',
+                              'Ready for Machine',
+                              'Shipping',
+                            ] as PartStatus[]
+                          ).includes(p.status) ? (
                             <select
                               value={p.status}
                               onChange={(e) => {

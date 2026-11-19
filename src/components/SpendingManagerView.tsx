@@ -64,13 +64,19 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
       const isPaidOutsourced = p.source === 'Outsourced' && p.costsMoney;
       if (!isBuyableCots && !isPaidOutsourced) return false;
 
-      const isRequestedOrActive =
+      const isActiveStatus =
         p.status === 'Requested' ||
+        p.status === 'Needs Drawing' ||
+        p.status === 'Needs CAM' ||
+        p.status === 'Ready for Machine' ||
+        p.status === 'In-Progress' ||
         p.status === 'Denied' ||
         p.status === 'Shipping' ||
-        p.status === 'Obtained' ||
-        p.sparesRequested > 0;
-      if (!isRequestedOrActive) return false;
+        (p.source !== 'Inventory' && p.status === 'Obtained');
+      const isInventorySparesPurchase =
+        p.source === 'Inventory' &&
+        (p.sparesRequested > 0 || p.totalOrdered > 0);
+      if (!isActiveStatus && !isInventorySparesPurchase) return false;
 
       if (!q) return true;
       return (
@@ -264,7 +270,13 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {purchaseRequests.map((p) => {
-            const pathway = p.source === 'Outsourced' ? 'Outsourced' : 'Purchased';
+            const isInventorySparesOnly = p.source === 'Inventory';
+            const pathway =
+              p.source === 'Outsourced'
+                ? 'Outsourced'
+                : isInventorySparesOnly
+                ? 'Inventory (Spares Only)'
+                : 'Purchased';
             const supplier =
               p.type === 'COTS' ? p.vendor : p.manufacturer;
             return (
@@ -282,14 +294,27 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
                         {p.partNumber}
                       </div>
                     </div>
-                    <StatusLabel status={p.status} />
+                    <StatusLabel
+                      status={
+                        isInventorySparesOnly &&
+                        p.status === 'Obtained' &&
+                        p.totalOrdered === 0 &&
+                        p.sparesRequested > 0
+                          ? 'Requested'
+                          : p.status
+                      }
+                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="p-2 rounded-lg bg-zinc-50 dark:bg-[#09090B] border border-zinc-200/70 dark:border-zinc-800/80">
-                      <span className="text-zinc-500 block">Qty / Spares Req</span>
+                      <span className="text-zinc-500 block">
+                        {isInventorySparesOnly ? 'Spares to Buy' : 'Qty / Spares Req'}
+                      </span>
                       <span className="font-mono-tabular font-semibold">
-                        {p.quantity} / {p.sparesRequested}
+                        {isInventorySparesOnly
+                          ? `${p.sparesRequested} (${p.quantity} in stock)`
+                          : `${p.quantity} / ${p.sparesRequested}`}
                       </span>
                     </div>
                     <div className="p-2 rounded-lg bg-zinc-50 dark:bg-[#09090B] border border-zinc-200/70 dark:border-zinc-800/80">

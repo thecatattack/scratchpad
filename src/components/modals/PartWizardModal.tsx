@@ -66,7 +66,11 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
 
   // Step 2: Pathway (COTS / In-House / Outsourced)
   const [pathway, setPathway] = useState<'COTS' | 'In-House' | 'Outsourced'>('In-House');
-  const [cotsPathway, setCotsPathway] = useState<'Purchased' | 'Inventory'>('Purchased');
+  const [cotsPathway, setCotsPathway] = useState<'Purchased' | 'Inventory' | 'Split'>('Purchased');
+  const [inventoryQty, setInventoryQty] = useState(1);
+  const [sparesToPurchase, setSparesToPurchase] = useState(0);
+  const [splitVendorLink, setSplitVendorLink] = useState('');
+  const [sendSplitRequestNow, setSendSplitRequestNow] = useState(true);
   const [vendorSelect, setVendorSelect] = useState(COTS_VENDORS[0]);
   const [customVendor, setCustomVendor] = useState('');
   const [selectedMachines, setSelectedMachines] = useState<string[]>([]);
@@ -101,6 +105,10 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
     setPicturePreview('');
     setPathway('In-House');
     setCotsPathway('Purchased');
+    setInventoryQty(1);
+    setSparesToPurchase(0);
+    setSplitVendorLink('');
+    setSendSplitRequestNow(true);
     setVendorSelect(COTS_VENDORS[0]);
     setCustomVendor('');
     setSelectedMachines([]);
@@ -135,9 +143,21 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
 
       if (editingPart.type === 'COTS') {
         setPathway('COTS');
-        setCotsPathway(
-          editingPart.source === 'Inventory' ? 'Inventory' : 'Purchased'
-        );
+        if (editingPart.source === 'Inventory' && (editingPart.sparesRequested || 0) > 0) {
+          setCotsPathway('Split');
+          setInventoryQty(editingPart.quantity);
+          setSparesToPurchase(editingPart.sparesRequested);
+          setSplitVendorLink(editingPart.vendorLink || '');
+          setSendSplitRequestNow(true);
+        } else {
+          setCotsPathway(
+            editingPart.source === 'Inventory' ? 'Inventory' : 'Purchased'
+          );
+          setInventoryQty(Math.max(1, editingPart.quantity > 1 ? editingPart.quantity - 1 : 1));
+          setSparesToPurchase(editingPart.sparesRequested || 0);
+          setSplitVendorLink(editingPart.vendorLink || '');
+          setSendSplitRequestNow(true);
+        }
         if (COTS_VENDORS.includes(editingPart.vendor)) {
           setVendorSelect(editingPart.vendor);
           setCustomVendor('');
@@ -302,6 +322,28 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         setErrorMsg('Please enter the Vendor name.');
         return false;
       }
+      if (pathway === 'COTS' && cotsPathway === 'Split') {
+        const totalQty = Math.max(1, Math.floor(quantity));
+        const invQty = Math.floor(inventoryQty);
+        const sparesQty = Math.floor(sparesToPurchase);
+        if (!Number.isFinite(invQty) || invQty < 1 || invQty > totalQty) {
+          setErrorMsg(
+            `Quantity in Inventory must be between 1 and ${totalQty}.`
+          );
+          return false;
+        }
+        if (!Number.isFinite(sparesQty) || sparesQty < 0) {
+          setErrorMsg('Spares to purchase cannot be negative.');
+          return false;
+        }
+        const purchaseBomQty = totalQty - invQty;
+        if (purchaseBomQty === 0 && sparesQty < 1) {
+          setErrorMsg(
+            'Since all BOM quantity is in inventory, enter at least 1 spare to purchase (or choose "In Inventory").'
+          );
+          return false;
+        }
+      }
       if (pathway === 'In-House' && selectedMachines.length === 0) {
         setErrorMsg('Select at least one machine for an In-House part.');
         return false;
@@ -376,10 +418,22 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         uploadedExtras.push(up);
       }
 
+      const totalQty = Math.max(1, Math.floor(quantity));
+      const isSplitCots = pathway === 'COTS' && cotsPathway === 'Split';
+      const clampedInvQty = isSplitCots
+        ? Math.max(1, Math.min(totalQty, Math.floor(inventoryQty)))
+        : 0;
+      const purchaseBomQty = isSplitCots ? Math.max(0, totalQty - clampedInvQty) : 0;
+      const cleanSparesToBuy = isSplitCots
+        ? Math.max(0, Math.floor(sparesToPurchase))
+        : 0;
+
       const type: PartType = pathway === 'COTS' ? 'COTS' : 'Custom';
+      const singleCotsSource: PartSource =
+        cotsPathway === 'Inventory' ? 'Inventory' : 'Purchased';
       const source: PartSource =
         pathway === 'COTS'
-          ? cotsPathway
+          ? singleCotsSource
           : pathway === 'Outsourced'
           ? 'Outsourced'
           : 'In-House';
@@ -438,16 +492,18 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
             }
           : {};
 
-      const payload = {
+      const basePayload = {
         name: name.trim(),
         partNumber: partNumber.trim(),
-        quantity: Math.max(1, Math.floor(quantity)),
+        quantity: totalQty,
         type,
         source,
         vendor,
         manufacturer,
         costsMoney:
-          pathway === 'Outsourced' ? costsMoney : pathway === 'COTS' && cotsPathway === 'Purchased',
+          pathway === 'Outsourced'
+            ? costsMoney
+            : pathway === 'COTS' && cotsPathway === 'Purchased',
         machines: pathway === 'In-House' ? selectedMachines : [],
         materialCategory: pathway === 'COTS' ? ('' as MaterialCategory) : materialCategory,
         materialName: resolvedMaterialName,
@@ -462,7 +518,10 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         identicalGroupId,
         notes: notes.trim(),
         // Status and workflow fields reset on edit or initialize on create
-        status: 'Not Started' as const,
+        status:
+          pathway === 'COTS' && cotsPathway === 'Inventory'
+            ? ('Obtained' as const)
+            : ('Not Started' as const),
         priority: 'Regular Priority' as const,
         assignedMachinist: '',
         vendorLink: '',
@@ -474,8 +533,8 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         machiningNotes: '',
       };
 
-      if (editingPart) {
-        await updatePart(projectId, editingPart.subassemblyId, editingPart.id, payload);
+      const cleanupReplacedEditingFiles = async () => {
+        if (!editingPart) return;
         if (editingPart.pictureUrl && editingPart.pictureUrl !== finalPictureUrl) {
           await deleteTeamFileByUrl(editingPart.pictureUrl);
         }
@@ -494,13 +553,94 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
             await deleteTeamFile(oldFile.storagePath, oldFile.size);
           }
         }
+      };
+
+      if (isSplitCots && purchaseBomQty === 0) {
+        // All BOM units are in inventory, purchasing spares only
+        const sparesOnlyPayload = {
+          ...basePayload,
+          quantity: totalQty,
+          source: 'Inventory' as PartSource,
+          costsMoney: true,
+          status: 'Obtained' as const,
+          vendorLink: splitVendorLink.trim(),
+          sparesRequested: cleanSparesToBuy,
+        };
+        if (editingPart) {
+          await updatePart(
+            projectId,
+            editingPart.subassemblyId,
+            editingPart.id,
+            sparesOnlyPayload
+          );
+          await cleanupReplacedEditingFiles();
+          pushToast(
+            'success',
+            `Updated "${sparesOnlyPayload.name}" (${totalQty} in inventory, ${cleanSparesToBuy} spares requested).`
+          );
+          onClose();
+        } else {
+          await createPart(projectId, subassemblyId, sparesOnlyPayload);
+          if (addAnother) {
+            resetForm();
+          } else {
+            onClose();
+          }
+        }
+      } else if (isSplitCots && purchaseBomQty > 0) {
+        // Split across Inventory portion (already in stock) + Purchased portion (needs buying + optional spares)
+        const inventoryPayload = {
+          ...basePayload,
+          quantity: clampedInvQty,
+          source: 'Inventory' as PartSource,
+          costsMoney: false,
+          status: 'Obtained' as const,
+          vendorLink: '',
+          sparesRequested: 0,
+        };
+        const purchasedPayload = {
+          ...basePayload,
+          quantity: purchaseBomQty,
+          source: 'Purchased' as PartSource,
+          costsMoney: true,
+          status: sendSplitRequestNow
+            ? ('Requested' as const)
+            : ('Not Started' as const),
+          vendorLink: splitVendorLink.trim(),
+          sparesRequested: cleanSparesToBuy,
+        };
+
+        if (editingPart) {
+          const targetSubId = editingPart.subassemblyId;
+          await updatePart(projectId, targetSubId, editingPart.id, inventoryPayload);
+          await createPart(projectId, targetSubId, purchasedPayload);
+          await cleanupReplacedEditingFiles();
+          pushToast(
+            'success',
+            `Split "${basePayload.name}": ${clampedInvQty} in inventory + ${purchaseBomQty} to purchase${
+              cleanSparesToBuy > 0 ? ` (+${cleanSparesToBuy} spares)` : ''
+            }.`
+          );
+          onClose();
+        } else {
+          await createPart(projectId, subassemblyId, inventoryPayload);
+          await createPart(projectId, subassemblyId, purchasedPayload);
+          if (addAnother) {
+            resetForm();
+          } else {
+            onClose();
+          }
+        }
+      } else if (editingPart) {
+        await updatePart(projectId, editingPart.subassemblyId, editingPart.id, basePayload);
+        await cleanupReplacedEditingFiles();
         pushToast(
           'success',
-          `Updated "${payload.name}" (workflow status reset to Not Started).`
+          `Updated "${basePayload.name}" (workflow status reset to ${basePayload.status}).`
         );
         onClose();
       } else {
-        await createPart(projectId, subassemblyId, payload);
+        await createPart(projectId, subassemblyId, basePayload);
         if (addAnother) {
           resetForm();
         } else {
@@ -715,23 +855,162 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
                   <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                     Part Pathway
                   </label>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {(['Purchased', 'Inventory'] as const).map((pw) => (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {(
+                      [
+                        ['Purchased', 'All Need Purchase'],
+                        ['Inventory', 'All in Inventory'],
+                        ['Split', 'Split: Inventory + Buy'],
+                      ] as const
+                    ).map(([pw, label]) => (
                       <button
                         key={pw}
                         type="button"
-                        onClick={() => setCotsPathway(pw)}
+                        onClick={() => {
+                          setCotsPathway(pw);
+                          if (pw === 'Split') {
+                            const totalQty = Math.max(1, Math.floor(quantity));
+                            const defaultInv =
+                              totalQty > 1
+                                ? Math.min(totalQty, Math.max(1, inventoryQty))
+                                : 1;
+                            setInventoryQty(defaultInv);
+                            if (defaultInv === totalQty && sparesToPurchase < 1) {
+                              setSparesToPurchase(1);
+                            }
+                          }
+                        }}
                         className={`py-2 px-3 rounded-lg border text-xs font-semibold transition-all ${
                           cotsPathway === pw
                             ? 'border-red-600 bg-red-600/15 text-red-600 dark:text-red-400'
                             : 'border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400'
                         }`}
                       >
-                        {pw === 'Purchased' ? 'Needs to be Purchased' : 'In Inventory'}
+                        {label}
                       </button>
                     ))}
                   </div>
                 </div>
+
+                {cotsPathway === 'Split' ? (() => {
+                  const totalQty = Math.max(1, Math.floor(quantity));
+                  const clampedInv = Math.max(
+                    1,
+                    Math.min(totalQty, Math.floor(inventoryQty || 1))
+                  );
+                  const purchaseBomQty = Math.max(0, totalQty - clampedInv);
+                  const sparesQty = Math.max(0, Math.floor(sparesToPurchase || 0));
+                  const totalToBuy = purchaseBomQty + sparesQty;
+
+                  return (
+                    <div className="p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                            Quantity Already in Inventory
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={totalQty}
+                            value={inventoryQty}
+                            onChange={(e) => {
+                              const nextInv = Math.max(
+                                1,
+                                Math.min(totalQty, Number(e.target.value) || 1)
+                              );
+                              setInventoryQty(nextInv);
+                              if (nextInv === totalQty && sparesToPurchase < 1) {
+                                setSparesToPurchase(1);
+                              }
+                            }}
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#131317] text-sm font-mono-tabular"
+                          />
+                          <p className="text-[11px] text-zinc-500">
+                            Max {totalQty} (BOM qty). Set to {totalQty} if buying spares only.
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                            Extra Spares to Purchase
+                          </label>
+                          <input
+                            type="number"
+                            min={purchaseBomQty === 0 ? 1 : 0}
+                            max={10000}
+                            value={sparesToPurchase}
+                            onChange={(e) =>
+                              setSparesToPurchase(
+                                Math.max(0, Number(e.target.value) || 0)
+                              )
+                            }
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#131317] text-sm font-mono-tabular"
+                          />
+                          <p className="text-[11px] text-zinc-500">
+                            {purchaseBomQty === 0
+                              ? 'At least 1 spare required when all BOM qty is in inventory.'
+                              : 'Optional extra spares to include in the purchase.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 p-2.5 rounded-lg bg-white dark:bg-[#131317] border border-zinc-200 dark:border-zinc-800 text-xs">
+                        <div>
+                          <div className="text-[11px] text-zinc-500">In Inventory</div>
+                          <div className="font-mono-tabular font-bold text-emerald-600 dark:text-emerald-400">
+                            {clampedInv}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[11px] text-zinc-500">Buy for BOM</div>
+                          <div className="font-mono-tabular font-bold text-zinc-900 dark:text-white">
+                            {purchaseBomQty}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[11px] text-zinc-500">Total to Buy</div>
+                          <div className="font-mono-tabular font-bold text-red-600 dark:text-red-400">
+                            {totalToBuy}
+                            {sparesQty > 0 ? ` (${sparesQty} spares)` : ''}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                          Vendor Website Link (Optional)
+                        </label>
+                        <input
+                          type="url"
+                          value={splitVendorLink}
+                          onChange={(e) => setSplitVendorLink(e.target.value)}
+                          placeholder="https://www.andymark.com/..."
+                          className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#131317] text-xs"
+                        />
+                      </div>
+
+                      {purchaseBomQty > 0 ? (
+                        <label className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={sendSplitRequestNow}
+                            onChange={(e) => setSendSplitRequestNow(e.target.checked)}
+                            className="rounded border-zinc-400 text-red-600 focus:ring-red-500"
+                          />
+                          <span>
+                            Send purchase request ({purchaseBomQty} BOM
+                            {sparesQty > 0 ? ` + ${sparesQty} spares` : ''}) to Spending Manager immediately
+                          </span>
+                        </label>
+                      ) : (
+                        <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                          All {totalQty} BOM units will be recorded as In Inventory (Obtained), and {sparesQty} spare{sparesQty === 1 ? '' : 's'} will be sent to Spending Manager.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })() : null}
               </div>
             ) : null}
 

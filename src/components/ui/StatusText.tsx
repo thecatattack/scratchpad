@@ -3,7 +3,10 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Cpu,
   MinusCircle,
+  PenTool,
+  PlayCircle,
   Truck,
   XCircle,
 } from 'lucide-react';
@@ -23,6 +26,27 @@ export const StatusLabel: React.FC<{ status: PartStatus }> = ({ status }) => {
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">
           <Clock className="w-3.5 h-3.5 shrink-0" />
           <span>In-Progress</span>
+        </span>
+      );
+    case 'Ready for Machine':
+      return (
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan-600 dark:text-cyan-400 whitespace-nowrap">
+          <PlayCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>Ready for Machine</span>
+        </span>
+      );
+    case 'Needs CAM':
+      return (
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+          <Cpu className="w-3.5 h-3.5 shrink-0" />
+          <span>Needs CAM</span>
+        </span>
+      );
+    case 'Needs Drawing':
+      return (
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-violet-600 dark:text-violet-400 whitespace-nowrap">
+          <PenTool className="w-3.5 h-3.5 shrink-0" />
+          <span>Needs Drawing</span>
         </span>
       );
     case 'Shipping':

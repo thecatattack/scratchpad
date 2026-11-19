@@ -62,6 +62,9 @@ export const MachiningManagerView: React.FC<MachiningManagerViewProps> = ({
       if (p.source !== 'In-House') return false;
       const isRequested =
         p.status === 'Requested' ||
+        p.status === 'Needs Drawing' ||
+        p.status === 'Needs CAM' ||
+        p.status === 'Ready for Machine' ||
         p.status === 'In-Progress' ||
         p.status === 'Obtained' ||
         p.sparesRequested > 0;
@@ -348,8 +351,17 @@ export const MachiningManagerView: React.FC<MachiningManagerViewProps> = ({
           {requestedParts.map(renderCard)}
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {(['Requested', 'In-Progress', 'Obtained'] as PartStatus[]).map(
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {(
+            [
+              'Requested',
+              'Needs Drawing',
+              'Needs CAM',
+              'Ready for Machine',
+              'In-Progress',
+              'Obtained',
+            ] as PartStatus[]
+          ).map(
             (statusKey) => {
               const col = requestedParts.filter((p) => p.status === statusKey);
               return (

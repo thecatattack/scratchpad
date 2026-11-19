@@ -21,6 +21,9 @@ function combineStatus(statuses: PartStatus[]): PartStatus {
   if (unique.includes('Denied')) return 'Denied';
   if (unique.includes('In-Progress')) return 'In-Progress';
   if (unique.includes('Shipping')) return 'Shipping';
+  if (unique.includes('Ready for Machine')) return 'Ready for Machine';
+  if (unique.includes('Needs CAM')) return 'Needs CAM';
+  if (unique.includes('Needs Drawing')) return 'Needs Drawing';
   if (unique.includes('Requested')) return 'Requested';
   if (unique.includes('Obtained') && unique.includes('Not Started')) return 'In-Progress';
   return unique[0];

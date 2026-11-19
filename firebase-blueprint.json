@@ -250,7 +250,17 @@
         },
         "status": {
           "type": "string",
-          "enum": ["Not Started", "Requested", "In-Progress", "Denied", "Shipping", "Obtained"]
+          "enum": [
+            "Not Started",
+            "Requested",
+            "Needs Drawing",
+            "Needs CAM",
+            "Ready for Machine",
+            "In-Progress",
+            "Denied",
+            "Shipping",
+            "Obtained"
+          ]
         },
         "priority": {
           "type": "string",

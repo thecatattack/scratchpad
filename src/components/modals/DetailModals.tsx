@@ -82,7 +82,17 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
     setLinkDraft(part.vendorLink || '');
     setMachinesUsedDraft(part.machinesUsed || []);
     setMachiningNotesDraft(part.machiningNotes || '');
-    setStatusDraft(part.status === 'Not Started' ? 'Requested' : part.status);
+    const isPendingInventorySpares =
+      modal.type === 'approved-action' &&
+      part.source === 'Inventory' &&
+      part.status === 'Obtained' &&
+      part.totalOrdered === 0 &&
+      part.sparesRequested > 0;
+    setStatusDraft(
+      part.status === 'Not Started' || isPendingInventorySpares
+        ? 'Requested'
+        : part.status
+    );
     setTotalCountDraft(
       modal.type === 'machine-action'
         ? part.totalMachined || 0
@@ -1168,6 +1178,9 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 className="w-full px-3 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
               >
                 <option value="Requested">Requested</option>
+                <option value="Needs Drawing">Needs Drawing</option>
+                <option value="Needs CAM">Needs CAM</option>
+                <option value="Ready for Machine">Ready for Machine</option>
                 <option value="In-Progress">In-Progress</option>
                 <option value="Obtained">Obtained</option>
               </select>
@@ -1275,15 +1288,28 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
 
   // 14. Spending Manager "Approved" Action Modal
   if (modal.type === 'approved-action') {
+    const isInventorySparesOnly = part.source === 'Inventory';
+
     return (
       <Modal
         open
         onClose={onClose}
         title="Approve & Update Order"
-        subtitle={`${part.partNumber} · ${part.name} (BOM Qty: ${part.quantity})`}
+        subtitle={
+          isInventorySparesOnly
+            ? `${part.partNumber} · ${part.name} (${part.quantity} In Inventory · ${part.sparesRequested} Spares Req)`
+            : `${part.partNumber} · ${part.name} (BOM Qty: ${part.quantity})`
+        }
         maxWidth="md"
       >
         <div className="space-y-4">
+          {isInventorySparesOnly ? (
+            <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-800 dark:text-amber-300">
+              All {part.quantity} BOM units are already in inventory. Enter only
+              the spare quantity ordered below.
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
@@ -1295,6 +1321,13 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 className="w-full px-3 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
               >
                 <option value="Requested">Requested</option>
+                {part.type === 'Custom' ? (
+                  <>
+                    <option value="Needs Drawing">Needs Drawing</option>
+                    <option value="Needs CAM">Needs CAM</option>
+                    <option value="Ready for Machine">Ready for Machine</option>
+                  </>
+                ) : null}
                 <option value="Denied">Denied</option>
                 <option value="Shipping">Shipping</option>
                 <option value="Obtained">Obtained</option>
@@ -1303,7 +1336,9 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
 
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                Total Ordered (Including Spares)
+                {isInventorySparesOnly
+                  ? 'Total Spares Ordered'
+                  : 'Total Ordered (Including Spares)'}
               </label>
               <input
                 type="number"
@@ -1318,9 +1353,13 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
           </div>
 
           <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            Calculated Spares Ordered:{' '}
+            {isInventorySparesOnly
+              ? 'Spares Added to Stock: '
+              : 'Calculated Spares Ordered: '}
             <span className="font-mono-tabular font-semibold text-zinc-900 dark:text-white">
-              {Math.max(0, Math.floor(totalCountDraft) - part.quantity)}
+              {isInventorySparesOnly
+                ? Math.max(0, Math.floor(totalCountDraft))
+                : Math.max(0, Math.floor(totalCountDraft) - part.quantity)}
             </span>
           </div>
 
@@ -1337,7 +1376,9 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               disabled={busy}
               onClick={async () => {
                 const total = Math.max(0, Math.floor(totalCountDraft));
-                const spares = Math.max(0, total - part.quantity);
+                const spares = isInventorySparesOnly
+                  ? total
+                  : Math.max(0, total - part.quantity);
                 setBusy(true);
                 try {
                   if (part.sourceParts.length === 1) {
@@ -1347,6 +1388,22 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                       totalOrdered: total,
                       sparesCount: spares,
                     });
+                  } else if (isInventorySparesOnly) {
+                    let remainingTotal = total;
+                    for (let i = 0; i < part.sourceParts.length; i++) {
+                      const ref = part.sourceParts[i];
+                      const isLast = i === part.sourceParts.length - 1;
+                      const requestedForRef = ref.part.sparesRequested || 0;
+                      const alloc = isLast
+                        ? remainingTotal
+                        : Math.min(remainingTotal, requestedForRef);
+                      remainingTotal -= alloc;
+                      await updatePart(projectId, ref.subassemblyId, ref.part.id, {
+                        status: statusDraft,
+                        totalOrdered: alloc,
+                        sparesCount: alloc,
+                      });
+                    }
                   } else {
                     let remainingTotal = total;
                     for (let i = 0; i < part.sourceParts.length; i++) {

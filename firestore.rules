@@ -159,7 +159,7 @@ service cloud.firestore {
         && (data.attachedFiles.size() == 0 || (data.attachedFiles[0] is map && data.attachedFiles[0].keys().hasOnly(['name', 'size', 'url', 'storagePath', 'contentType'])))
         && data.identicalGroupId is string && data.identicalGroupId.size() <= 128
         && data.notes is string && data.notes.size() <= 2000
-        && data.status in ['Not Started', 'Requested', 'In-Progress', 'Denied', 'Shipping', 'Obtained']
+        && data.status in ['Not Started', 'Requested', 'Needs Drawing', 'Needs CAM', 'Ready for Machine', 'In-Progress', 'Denied', 'Shipping', 'Obtained']
         && data.priority in ['Low Priority', 'Regular Priority', 'High Priority', 'Critical Priority']
         && data.assignedMachinist is string && data.assignedMachinist.size() <= 80
         && data.vendorLink is string && data.vendorLink.size() <= 1000
