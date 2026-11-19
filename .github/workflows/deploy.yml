@@ -1,4 +1,4 @@
-name: Deploy Cat Attack #451 App to GitHub Pages
+name: Deploy Scratchpad to GitHub Pages
 
 on:
   push:

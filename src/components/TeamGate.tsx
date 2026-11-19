@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRight, KeyRound, Lock, ShieldCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { ScratchpadLogo } from './ui/ScratchpadLogo';
 
 interface TeamGateProps {
   onUnlocked: () => void;
@@ -25,29 +26,13 @@ export const TeamGate: React.FC<TeamGateProps> = ({ onUnlocked }) => {
     <div className="min-h-[calc(100vh-3.5rem)] flex items-center justify-center p-4 sm:p-8">
       <div className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317] p-6 sm:p-8 shadow-xl space-y-6">
         <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-xl bg-red-600 flex items-center justify-center text-white shrink-0">
-            <svg
-              viewBox="0 0 36 36"
-              className="w-7 h-7"
-              fill="none"
-              aria-hidden="true"
-            >
-              <path
-                d="M7 9L13 15L18 11L23 15L29 9V22C29 26.5 24 30 18 30C12 30 7 26.5 7 22V9Z"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinejoin="round"
-              />
-              <circle cx="14" cy="20" r="1.6" fill="currentColor" />
-              <circle cx="22" cy="20" r="1.6" fill="currentColor" />
-            </svg>
-          </div>
+          <ScratchpadLogo className="w-12 h-12 shrink-0" />
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 dark:text-white leading-none">
-              FRC #451 Cat Attack
+              Scratchpad
             </h1>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-              Parts, BOM & Shop Operations Portal
+              FRC #451 Cat Attack • Parts, BOM & Shop Portal
             </p>
           </div>
         </div>
@@ -135,10 +120,19 @@ export const TeamGate: React.FC<TeamGateProps> = ({ onUnlocked }) => {
             disabled={!user}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-45 disabled:pointer-events-none text-white text-sm font-semibold transition-all active:scale-[0.98]"
           >
-            <span>Enter Cat Attack Workspace</span>
+            <span>Enter Scratchpad</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
+
+        <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <img
+            src="./assets/aistudio/Cat_Attack_Cathead_color_raster__1__ac07ef9a.png"
+            alt="FRC Team #451 Cat Attack logo"
+            className="w-5 h-5 object-contain shrink-0"
+          />
+          <span>Built for FRC Team #451 Cat Attack</span>
+        </div>
       </div>
     </div>
   );

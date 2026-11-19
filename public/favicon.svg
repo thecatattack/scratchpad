@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="sp-bg" x1="6" y1="4" x2="58" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#18181B" />
+      <stop offset="100%" stop-color="#09090B" />
+    </linearGradient>
+    <linearGradient id="sp-claw" x1="18" y1="20" x2="46" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF3B3B" />
+      <stop offset="55%" stop-color="#DC2626" />
+      <stop offset="100%" stop-color="#991B1B" />
+    </linearGradient>
+  </defs>
+
+  <!-- Dark chassis badge -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#sp-bg)" stroke="#DC2626" stroke-width="2.5" />
+
+  <!-- Subtle left crimson crescent accent (nod to Cat Attack #451) -->
+  <path d="M12 12 C6 22 6 42 12 52 C9 42 9 22 12 12 Z" fill="#DC2626" opacity="0.85" />
+
+  <!-- Engineering pad sheet with chamfered corner -->
+  <path d="M18 14 H41 L49 22 V49 A3 3 0 0 1 46 52 H18 A3 3 0 0 1 15 49 V17 A3 3 0 0 1 18 14 Z" fill="#1F1F26" stroke="#71717A" stroke-width="2" stroke-linejoin="round" />
+
+  <!-- Dog-ear folded corner -->
+  <path d="M41 14 V22 H49 Z" fill="#3F3F46" stroke="#71717A" stroke-width="1.5" stroke-linejoin="round" />
+
+  <!-- Top spiral binder notches -->
+  <rect x="21" y="9.5" width="3.5" height="7" rx="1.75" fill="#E4E4E7" />
+  <rect x="28.5" y="9.5" width="3.5" height="7" rx="1.75" fill="#E4E4E7" />
+  <rect x="36" y="9.5" width="3.5" height="7" rx="1.75" fill="#E4E4E7" />
+
+  <!-- Subtle blueprint lines -->
+  <line x1="20" y1="28" x2="43" y2="28" stroke="#32323C" stroke-width="1.5" stroke-linecap="round" />
+  <line x1="20" y1="36" x2="44" y2="36" stroke="#32323C" stroke-width="1.5" stroke-linecap="round" />
+  <line x1="20" y1="44" x2="41" y2="44" stroke="#32323C" stroke-width="1.5" stroke-linecap="round" />
+
+  <!-- Three signature claw-scratch slashes across the pad -->
+  <path d="M18 32.5 Q28 37.5 31.5 48.5 Q21.5 43.5 18 32.5 Z" fill="url(#sp-claw)" />
+  <path d="M22.5 23.5 Q37 31 43 47.5 Q28.5 40 22.5 23.5 Z" fill="url(#sp-claw)" />
+  <path d="M31 21.5 Q42.5 26.5 46.5 39 Q35 33.5 31 21.5 Z" fill="url(#sp-claw)" />
+
+  <!-- Crisp highlight glints on slashes -->
+  <path d="M24.5 26 Q33.5 31.5 38.5 41.5" stroke="#FCA5A5" stroke-width="1.1" stroke-linecap="round" opacity="0.85" />
+</svg>

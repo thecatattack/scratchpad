@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { AppMode } from '../types';
+import { ScratchpadLogo } from './ui/ScratchpadLogo';
 
 interface TopBarProps {
   currentMode: AppMode;
@@ -39,10 +40,8 @@ export const TopBar: React.FC<TopBarProps> = ({ currentMode, onNavigate }) => {
           }}
           className="flex items-center gap-2.5 text-xl font-bold tracking-tight text-zinc-900 dark:text-white whitespace-nowrap shrink-0 font-display"
         >
-          <span className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-red-600 text-white text-sm font-bold tracking-normal">
-            451
-          </span>
-          <span>Cat Attack</span>
+          <ScratchpadLogo className="w-8 h-8 shrink-0" />
+          <span>Scratchpad</span>
         </a>
 
         {/* Zone 2: Concise single-line mode links (desktop) */}

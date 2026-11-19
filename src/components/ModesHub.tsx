@@ -120,8 +120,8 @@ export const ModesHub: React.FC<ModesHubProps> = ({ onSelectMode }) => {
           Select Workspace Mode
         </h1>
         <p className="text-sm sm:text-base text-zinc-600 dark:text-zinc-400">
-          Choose your role in Team #451 Cat Attack. You can return here at any
-          time using Switch Mode in the header.
+          Choose your role in Scratchpad for FRC Team #451 Cat Attack. You can
+          return here at any time using Switch Mode in the header.
         </p>
       </div>
 
