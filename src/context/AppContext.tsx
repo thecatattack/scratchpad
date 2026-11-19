@@ -1018,7 +1018,7 @@ export function useProjectDetails(projectId: string | null) {
         }
 
         const nextPartsMap: Record<string, Part[]> = {};
-        let resolvedSubs = 0;
+        const resolvedSubIds = new Set<string>();
 
         list.forEach((sub) => {
           const partsQ = query(
@@ -1033,8 +1033,8 @@ export function useProjectDetails(projectId: string | null) {
                 id: pd.id,
               }));
               setPartsBySub({ ...nextPartsMap });
-              resolvedSubs += 1;
-              if (resolvedSubs >= list.length) {
+              resolvedSubIds.add(sub.id);
+              if (resolvedSubIds.size >= list.length) {
                 setLoading(false);
               }
             },

@@ -948,7 +948,10 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       </div>
                       {p.type === 'Custom' &&
                       p.source === 'In-House' &&
-                      p.status === 'In-Progress' ? (
+                      (p.status === 'In-Progress' ||
+                        Boolean(p.machiningNotes?.trim()) ||
+                        (p.machinesUsed && p.machinesUsed.length > 0) ||
+                        (p.totalMachined || 0) > 0) ? (
                         <button
                           type="button"
                           onClick={() =>
@@ -957,7 +960,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                               part: p,
                             })
                           }
-                          title="View machinist progress"
+                          title="View machinist progress & notes"
                           className="shrink-0 underline decoration-dotted underline-offset-4 decoration-amber-500/70 hover:opacity-80 cursor-pointer"
                         >
                           <StatusLabel status={p.status} />
@@ -1114,21 +1117,34 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   };
 
   const renderStatusCell = (p: AggregatedPart) => {
-    if (
+    const hasMachiningDetails =
       p.type === 'Custom' &&
       p.source === 'In-House' &&
-      p.status === 'In-Progress'
-    ) {
+      (p.status === 'In-Progress' ||
+        Boolean(p.machiningNotes?.trim()) ||
+        (p.machinesUsed && p.machinesUsed.length > 0) ||
+        (p.totalMachined || 0) > 0);
+
+    if (hasMachiningDetails) {
       return (
         <button
           type="button"
           onClick={() =>
             setDetailModal({ type: 'in-progress-details', part: p })
           }
-          title="View what has been done by the machinist"
-          className="inline-flex items-center underline decoration-dotted underline-offset-4 decoration-amber-500/70 hover:opacity-80 transition-opacity cursor-pointer"
+          title={
+            p.machiningNotes?.trim()
+              ? 'View machinist progress & notes'
+              : 'View what has been done by the machinist'
+          }
+          className="inline-flex items-center gap-1.5 underline decoration-dotted underline-offset-4 decoration-amber-500/70 hover:opacity-80 transition-opacity cursor-pointer"
         >
           <StatusLabel status={p.status} />
+          {p.machiningNotes?.trim() ? (
+            <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+              Notes
+            </span>
+          ) : null}
         </button>
       );
     }

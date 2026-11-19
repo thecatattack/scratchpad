@@ -61,6 +61,35 @@ interface DetailModalsProps {
   projectId: string;
 }
 
+const MACHINING_STATUSES: PartStatus[] = [
+  'Requested',
+  'Needs Drawing',
+  'Needs CAM',
+  'Ready for Machine',
+  'In-Progress',
+  'Obtained',
+];
+
+function extractReadableError(err: unknown, fallback: string): string {
+  if (!(err instanceof Error)) return fallback;
+  const raw = err.message;
+  try {
+    const parsed = JSON.parse(raw) as { error?: string };
+    if (parsed && typeof parsed.error === 'string' && parsed.error.trim()) {
+      return parsed.error;
+    }
+  } catch {
+    // Not a JSON-wrapped Firestore error
+  }
+  return raw || fallback;
+}
+
+function parseNonNegativeInt(raw: string | number, max: number): number {
+  const n = typeof raw === 'number' ? raw : Number(raw === '' ? 0 : raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(max, Math.max(0, Math.floor(n)));
+}
+
 export const DetailModals: React.FC<DetailModalsProps> = ({
   modal,
   onClose,
@@ -78,12 +107,15 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
   const [machinesUsedDraft, setMachinesUsedDraft] = useState<string[]>([]);
   const [machiningNotesDraft, setMachiningNotesDraft] = useState('');
   const [statusDraft, setStatusDraft] = useState<PartStatus>('Requested');
-  const [totalCountDraft, setTotalCountDraft] = useState(0);
+  const [totalCountInput, setTotalCountInput] = useState('0');
+  const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!modal) return;
     const part = modal.part;
+    setBusy(false);
+    setActionError('');
     setSelectedFileKeys(part.attachedFiles.map((f) => f.storagePath || f.url));
     setNotesDraft(part.notes || '');
     setMachinistDraft(part.assignedMachinist || '');
@@ -92,22 +124,44 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
     setLinkDraft(part.vendorLink || '');
     setMachinesUsedDraft(part.machinesUsed || []);
     setMachiningNotesDraft(part.machiningNotes || '');
+
     const isPendingInventorySpares =
       modal.type === 'approved-action' &&
       part.source === 'Inventory' &&
       part.status === 'Obtained' &&
       part.totalOrdered === 0 &&
       part.sparesRequested > 0;
-    setStatusDraft(
-      part.status === 'Not Started' || isPendingInventorySpares
-        ? 'Requested'
-        : part.status
-    );
-    setTotalCountDraft(
-      modal.type === 'machine-action'
-        ? part.totalMachined || 0
-        : part.totalOrdered || 0
-    );
+
+    if (modal.type === 'machine-action') {
+      setStatusDraft(
+        MACHINING_STATUSES.includes(part.status) ? part.status : 'Requested'
+      );
+      setTotalCountInput(String(part.totalMachined || 0));
+    } else {
+      const approvalValidStatuses: PartStatus[] =
+        part.type === 'Custom'
+          ? [
+              'Requested',
+              'Needs Drawing',
+              'Needs CAM',
+              'Ready for Machine',
+              'Denied',
+              'Shipping',
+              'Obtained',
+            ]
+          : ['Requested', 'Denied', 'Shipping', 'Obtained'];
+      const candidateStatus =
+        part.status === 'Not Started' || isPendingInventorySpares
+          ? 'Requested'
+          : part.status;
+      setStatusDraft(
+        modal.type === 'approved-action' &&
+          !approvalValidStatuses.includes(candidateStatus)
+          ? 'Requested'
+          : candidateStatus
+      );
+      setTotalCountInput(String(part.totalOrdered || 0));
+    }
   }, [modal]);
 
   if (!modal) return null;
@@ -122,6 +176,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
     partial: Record<string, unknown>
   ) => {
     setBusy(true);
+    setActionError('');
     try {
       await Promise.all(
         part.sourceParts.map((ref) =>
@@ -486,6 +541,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
       <Modal
         open
         onClose={onClose}
+        preventClose={busy}
         title="Part Notes"
         subtitle={`${partTag} · ${part.name}`}
         maxWidth="md"
@@ -499,11 +555,17 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               placeholder="Write notes for machinists or purchasing..."
               className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
             />
+            {actionError ? (
+              <div className="p-2.5 rounded-lg border border-red-500/40 bg-red-500/10 text-xs text-red-600 dark:text-red-400">
+                {actionError}
+              </div>
+            ) : null}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
+                disabled={busy}
                 onClick={onClose}
-                className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+                className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 disabled:opacity-40"
               >
                 Cancel
               </button>
@@ -511,11 +573,19 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 type="button"
                 disabled={busy}
                 onClick={async () => {
-                  await updateAllContributingParts({ notes: notesDraft.trim().slice(0, 2000) });
-                  pushToast('success', 'Notes saved.');
-                  onClose();
+                  try {
+                    await updateAllContributingParts({
+                      notes: notesDraft.trim().slice(0, 2000),
+                    });
+                    pushToast('success', 'Notes saved.');
+                    onClose();
+                  } catch (err) {
+                    const msg = extractReadableError(err, 'Failed to save notes.');
+                    setActionError(msg);
+                    pushToast('error', msg);
+                  }
                 }}
-                className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+                className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
               >
                 {busy ? 'Saving...' : 'Save Notes'}
               </button>
@@ -777,6 +847,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
       <Modal
         open
         onClose={onClose}
+        preventClose={busy}
         title="Request Machining"
         subtitle={`${partTag} · ${part.name}`}
         maxWidth="md"
@@ -820,7 +891,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 type="number"
                 min={0}
                 value={sparesDraft}
-                onChange={(e) => setSparesDraft(Math.max(0, Number(e.target.value)))}
+                onChange={(e) => setSparesDraft(parseNonNegativeInt(e.target.value, 10000))}
                 className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
               />
             </div>
@@ -838,11 +909,18 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             />
           </div>
 
+          {actionError ? (
+            <div className="p-2.5 rounded-lg border border-red-500/40 bg-red-500/10 text-xs text-red-600 dark:text-red-400">
+              {actionError}
+            </div>
+          ) : null}
+
           <div className="flex justify-end gap-2">
             <button
               type="button"
+              disabled={busy}
               onClick={onClose}
-              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 disabled:opacity-40"
             >
               Cancel
             </button>
@@ -850,17 +928,23 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               type="button"
               disabled={busy}
               onClick={async () => {
-                await updateAllContributingParts({
-                  status: 'Requested',
-                  priority: priorityDraft,
-                  assignedMachinist: machinistDraft.trim().slice(0, 80),
-                  sparesRequested: Math.min(10000, Math.max(0, Math.floor(sparesDraft))),
-                  notes: notesDraft.trim().slice(0, 2000),
-                });
-                pushToast('success', 'Sent to Machining Manager.');
-                onClose();
+                try {
+                  await updateAllContributingParts({
+                    status: 'Requested',
+                    priority: priorityDraft,
+                    assignedMachinist: machinistDraft.trim().slice(0, 80),
+                    sparesRequested: parseNonNegativeInt(sparesDraft, 10000),
+                    notes: notesDraft.trim().slice(0, 2000),
+                  });
+                  pushToast('success', 'Sent to Machining Manager.');
+                  onClose();
+                } catch (err) {
+                  const msg = extractReadableError(err, 'Failed to send request.');
+                  setActionError(msg);
+                  pushToast('error', msg);
+                }
               }}
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
             >
               {busy ? 'Sending...' : 'Send Request'}
             </button>
@@ -876,6 +960,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
       <Modal
         open
         onClose={onClose}
+        preventClose={busy}
         title="Request COTS Purchase"
         subtitle={`${partTag} · ${part.name}`}
         maxWidth="md"
@@ -920,7 +1005,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 type="number"
                 min={0}
                 value={sparesDraft}
-                onChange={(e) => setSparesDraft(Math.max(0, Number(e.target.value)))}
+                onChange={(e) => setSparesDraft(parseNonNegativeInt(e.target.value, 10000))}
                 className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
               />
             </div>
@@ -938,11 +1023,18 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             />
           </div>
 
+          {actionError ? (
+            <div className="p-2.5 rounded-lg border border-red-500/40 bg-red-500/10 text-xs text-red-600 dark:text-red-400">
+              {actionError}
+            </div>
+          ) : null}
+
           <div className="flex justify-end gap-2">
             <button
               type="button"
+              disabled={busy}
               onClick={onClose}
-              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 disabled:opacity-40"
             >
               Cancel
             </button>
@@ -950,17 +1042,23 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               type="button"
               disabled={busy}
               onClick={async () => {
-                await updateAllContributingParts({
-                  status: 'Requested',
-                  priority: priorityDraft,
-                  vendorLink: linkDraft.trim().slice(0, 1000),
-                  sparesRequested: Math.min(10000, Math.max(0, Math.floor(sparesDraft))),
-                  notes: notesDraft.trim().slice(0, 2000),
-                });
-                pushToast('success', 'Sent to Spending Manager.');
-                onClose();
+                try {
+                  await updateAllContributingParts({
+                    status: 'Requested',
+                    priority: priorityDraft,
+                    vendorLink: linkDraft.trim().slice(0, 1000),
+                    sparesRequested: parseNonNegativeInt(sparesDraft, 10000),
+                    notes: notesDraft.trim().slice(0, 2000),
+                  });
+                  pushToast('success', 'Sent to Spending Manager.');
+                  onClose();
+                } catch (err) {
+                  const msg = extractReadableError(err, 'Failed to send request.');
+                  setActionError(msg);
+                  pushToast('error', msg);
+                }
               }}
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
             >
               {busy ? 'Sending...' : 'Send Request'}
             </button>
@@ -976,6 +1074,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
       <Modal
         open
         onClose={onClose}
+        preventClose={busy}
         title="Request Outsourced Order"
         subtitle={`${partTag} · ${part.manufacturer}`}
         maxWidth="md"
@@ -1006,7 +1105,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 type="number"
                 min={0}
                 value={sparesDraft}
-                onChange={(e) => setSparesDraft(Math.max(0, Number(e.target.value)))}
+                onChange={(e) => setSparesDraft(parseNonNegativeInt(e.target.value, 10000))}
                 className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
               />
             </div>
@@ -1037,11 +1136,18 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             />
           </div>
 
+          {actionError ? (
+            <div className="p-2.5 rounded-lg border border-red-500/40 bg-red-500/10 text-xs text-red-600 dark:text-red-400">
+              {actionError}
+            </div>
+          ) : null}
+
           <div className="flex justify-end gap-2">
             <button
               type="button"
+              disabled={busy}
               onClick={onClose}
-              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 disabled:opacity-40"
             >
               Cancel
             </button>
@@ -1049,17 +1155,23 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               type="button"
               disabled={busy}
               onClick={async () => {
-                await updateAllContributingParts({
-                  status: 'Requested',
-                  priority: priorityDraft,
-                  vendorLink: linkDraft.trim().slice(0, 1000),
-                  sparesRequested: Math.min(10000, Math.max(0, Math.floor(sparesDraft))),
-                  notes: notesDraft.trim().slice(0, 2000),
-                });
-                pushToast('success', 'Sent to Spending Manager.');
-                onClose();
+                try {
+                  await updateAllContributingParts({
+                    status: 'Requested',
+                    priority: priorityDraft,
+                    vendorLink: linkDraft.trim().slice(0, 1000),
+                    sparesRequested: parseNonNegativeInt(sparesDraft, 10000),
+                    notes: notesDraft.trim().slice(0, 2000),
+                  });
+                  pushToast('success', 'Sent to Spending Manager.');
+                  onClose();
+                } catch (err) {
+                  const msg = extractReadableError(err, 'Failed to send request.');
+                  setActionError(msg);
+                  pushToast('error', msg);
+                }
               }}
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
             >
               {busy ? 'Sending...' : 'Send Request'}
             </button>
@@ -1080,6 +1192,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
       <Modal
         open
         onClose={onClose}
+        preventClose={busy}
         title="Edit Spare Parts"
         subtitle={`${partTag} · ${part.name}`}
         maxWidth="sm"
@@ -1093,19 +1206,26 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               type="number"
               min={0}
               value={sparesDraft}
-              onChange={(e) => setSparesDraft(Math.max(0, Number(e.target.value)))}
+              onChange={(e) => setSparesDraft(parseNonNegativeInt(e.target.value, 10000))}
               className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
             />
           </div>
+
+          {actionError ? (
+            <div className="p-2.5 rounded-lg border border-red-500/40 bg-red-500/10 text-xs text-red-600 dark:text-red-400">
+              {actionError}
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
             {canRequestMore ? (
               <button
                 type="button"
+                disabled={busy}
                 onClick={() =>
                   onSwitchModal({ type: 'request-more-spares', part })
                 }
-                className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-red-600 text-red-600 dark:text-red-400 hover:bg-red-600/10"
+                className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-red-600 text-red-600 dark:text-red-400 hover:bg-red-600/10 disabled:opacity-40"
               >
                 Request More
               </button>
@@ -1117,8 +1237,9 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             <div className="flex items-center gap-2 ml-auto">
               <button
                 type="button"
+                disabled={busy}
                 onClick={onClose}
-                className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+                className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 disabled:opacity-40"
               >
                 Cancel
               </button>
@@ -1127,15 +1248,25 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 disabled={busy}
                 onClick={async () => {
                   const targetRef = part.sourceParts[0];
-                  await updatePart(projectId, targetRef.subassemblyId, targetRef.part.id, {
-                    sparesCount: Math.min(10000, Math.max(0, Math.floor(sparesDraft))),
-                  });
-                  pushToast('success', 'Spares quantity updated.');
-                  onClose();
+                  setBusy(true);
+                  setActionError('');
+                  try {
+                    await updatePart(projectId, targetRef.subassemblyId, targetRef.part.id, {
+                      sparesCount: parseNonNegativeInt(sparesDraft, 10000),
+                    });
+                    pushToast('success', 'Spares quantity updated.');
+                    onClose();
+                  } catch (err) {
+                    const msg = extractReadableError(err, 'Failed to update spares count.');
+                    setActionError(msg);
+                    pushToast('error', msg);
+                  } finally {
+                    setBusy(false);
+                  }
                 }}
-                className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+                className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
               >
-                Save Count
+                {busy ? 'Saving...' : 'Save Count'}
               </button>
             </div>
           </div>
@@ -1154,6 +1285,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
       <Modal
         open
         onClose={onClose}
+        preventClose={busy}
         title="Request More Spares"
         subtitle={`${partTag} · Status remains "${part.status}"`}
         maxWidth="md"
@@ -1216,7 +1348,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               type="number"
               min={1}
               value={sparesDraft || 1}
-              onChange={(e) => setSparesDraft(Math.max(1, Number(e.target.value)))}
+              onChange={(e) => setSparesDraft(Math.max(1, parseNonNegativeInt(e.target.value, 10000)))}
               className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
             />
           </div>
@@ -1233,11 +1365,18 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             />
           </div>
 
+          {actionError ? (
+            <div className="p-2.5 rounded-lg border border-red-500/40 bg-red-500/10 text-xs text-red-600 dark:text-red-400">
+              {actionError}
+            </div>
+          ) : null}
+
           <div className="flex justify-end gap-2">
             <button
               type="button"
+              disabled={busy}
               onClick={onClose}
-              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 disabled:opacity-40"
             >
               Cancel
             </button>
@@ -1246,7 +1385,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               disabled={busy}
               onClick={async () => {
                 const payload: Record<string, unknown> = {
-                  sparesRequested: Math.min(10000, Math.max(1, Math.floor(sparesDraft || 1))),
+                  sparesRequested: Math.max(1, parseNonNegativeInt(sparesDraft || 1, 10000)),
                   notes: notesDraft.trim().slice(0, 2000),
                 };
                 if (isInHouse) {
@@ -1259,14 +1398,20 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                   payload.priority = priorityDraft;
                   payload.vendorLink = linkDraft.trim().slice(0, 1000);
                 }
-                await updateAllContributingParts(payload);
-                pushToast(
-                  'success',
-                  'Spare request sent (part status preserved).'
-                );
-                onClose();
+                try {
+                  await updateAllContributingParts(payload);
+                  pushToast(
+                    'success',
+                    'Spare request sent (part status preserved).'
+                  );
+                  onClose();
+                } catch (err) {
+                  const msg = extractReadableError(err, 'Failed to send spare request.');
+                  setActionError(msg);
+                  pushToast('error', msg);
+                }
               }}
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
             >
               {busy ? 'Sending...' : 'Request More Spares'}
             </button>
@@ -1283,11 +1428,13 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
       );
     };
+    const parsedMachinedTotal = parseNonNegativeInt(totalCountInput, 100000);
 
     return (
       <Modal
         open
         onClose={onClose}
+        preventClose={busy}
         title="Log Machining Progress"
         subtitle={`${partTag} · ${part.name} (BOM Qty: ${part.quantity})`}
         maxWidth="md"
@@ -1363,10 +1510,10 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               <input
                 type="number"
                 min={0}
-                value={totalCountDraft}
-                onChange={(e) =>
-                  setTotalCountDraft(Math.max(0, Number(e.target.value)))
-                }
+                step={1}
+                value={totalCountInput}
+                onChange={(e) => setTotalCountInput(e.target.value)}
+                onBlur={() => setTotalCountInput(String(parsedMachinedTotal))}
                 className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
               />
             </div>
@@ -1389,15 +1536,22 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
           <div className="text-xs text-zinc-500 dark:text-zinc-400">
             Calculated Spares Produced:{' '}
             <span className="font-mono-tabular font-semibold text-zinc-900 dark:text-white">
-              {Math.max(0, Math.floor(totalCountDraft) - part.quantity)}
+              {Math.max(0, parsedMachinedTotal - part.quantity)}
             </span>
           </div>
+
+          {actionError ? (
+            <div className="p-2.5 rounded-lg border border-red-500/40 bg-red-500/10 text-xs text-red-600 dark:text-red-400">
+              {actionError}
+            </div>
+          ) : null}
 
           <div className="flex justify-end gap-2">
             <button
               type="button"
+              disabled={busy}
               onClick={onClose}
-              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 disabled:opacity-40"
             >
               Cancel
             </button>
@@ -1405,12 +1559,16 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               type="button"
               disabled={busy}
               onClick={async () => {
-                const total = Math.min(100000, Math.max(0, Math.floor(totalCountDraft)));
+                const total = parseNonNegativeInt(totalCountInput, 100000);
                 const spares = Math.min(10000, Math.max(0, total - part.quantity));
                 const cleanNotes = machiningNotesDraft.trim().slice(0, 1000);
-                const cleanMachinesUsed = machinesUsedDraft.slice(0, 25).map((m) => m.slice(0, 60));
-                // Update contributing parts proportionally or on primary
+                const cleanMachinesUsed = machinesUsedDraft
+                  .map((m) => m.trim().slice(0, 60))
+                  .filter(Boolean)
+                  .slice(0, 25);
+
                 setBusy(true);
+                setActionError('');
                 try {
                   if (part.sourceParts.length === 1) {
                     const ref = part.sourceParts[0];
@@ -1422,32 +1580,47 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                       machiningNotes: cleanNotes,
                     });
                   } else {
-                    // Distribute across aggregated subassembly parts
                     let remainingTotal = total;
-                    for (let i = 0; i < part.sourceParts.length; i++) {
-                      const ref = part.sourceParts[i];
-                      const isLast = i === part.sourceParts.length - 1;
-                      const alloc = isLast
-                        ? remainingTotal
-                        : Math.min(remainingTotal, ref.part.quantity);
-                      remainingTotal -= alloc;
-                      const subSpares = Math.max(0, alloc - ref.part.quantity);
-                      await updatePart(projectId, ref.subassemblyId, ref.part.id, {
-                        machinesUsed: machinesUsedDraft,
+                    const tasks = part.sourceParts.map((ref, idx) => {
+                      const isLast = idx === part.sourceParts.length - 1;
+                      const alloc = Math.min(
+                        100000,
+                        Math.max(
+                          0,
+                          isLast
+                            ? remainingTotal
+                            : Math.min(remainingTotal, ref.part.quantity)
+                        )
+                      );
+                      remainingTotal = Math.max(0, remainingTotal - alloc);
+                      const subSpares = Math.min(
+                        10000,
+                        Math.max(0, alloc - ref.part.quantity)
+                      );
+                      return updatePart(projectId, ref.subassemblyId, ref.part.id, {
+                        machinesUsed: cleanMachinesUsed,
                         status: statusDraft,
                         totalMachined: alloc,
                         sparesCount: subSpares,
                         machiningNotes: cleanNotes,
                       });
-                    }
+                    });
+                    await Promise.all(tasks);
                   }
                   pushToast('success', 'Machining progress synced across BOM.');
                   onClose();
+                } catch (err) {
+                  const msg = extractReadableError(
+                    err,
+                    'Failed to save machining progress.'
+                  );
+                  setActionError(msg);
+                  pushToast('error', msg);
                 } finally {
                   setBusy(false);
                 }
               }}
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
             >
               {busy ? 'Saving...' : 'Update Machining'}
             </button>
@@ -1460,11 +1633,13 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
   // 14. Spending Manager "Approved" Action Modal
   if (modal.type === 'approved-action') {
     const isInventorySparesOnly = part.source === 'Inventory';
+    const parsedOrderedTotal = parseNonNegativeInt(totalCountInput, 100000);
 
     return (
       <Modal
         open
         onClose={onClose}
+        preventClose={busy}
         title="Approve & Update Order"
         subtitle={
           isInventorySparesOnly
@@ -1524,10 +1699,10 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               <input
                 type="number"
                 min={0}
-                value={totalCountDraft}
-                onChange={(e) =>
-                  setTotalCountDraft(Math.max(0, Number(e.target.value)))
-                }
+                step={1}
+                value={totalCountInput}
+                onChange={(e) => setTotalCountInput(e.target.value)}
+                onBlur={() => setTotalCountInput(String(parsedOrderedTotal))}
                 className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
               />
             </div>
@@ -1539,16 +1714,23 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               : 'Calculated Spares Ordered: '}
             <span className="font-mono-tabular font-semibold text-zinc-900 dark:text-white">
               {isInventorySparesOnly
-                ? Math.max(0, Math.floor(totalCountDraft))
-                : Math.max(0, Math.floor(totalCountDraft) - part.quantity)}
+                ? parsedOrderedTotal
+                : Math.max(0, parsedOrderedTotal - part.quantity)}
             </span>
           </div>
+
+          {actionError ? (
+            <div className="p-2.5 rounded-lg border border-red-500/40 bg-red-500/10 text-xs text-red-600 dark:text-red-400">
+              {actionError}
+            </div>
+          ) : null}
 
           <div className="flex justify-end gap-2">
             <button
               type="button"
+              disabled={busy}
               onClick={onClose}
-              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 disabled:opacity-40"
             >
               Cancel
             </button>
@@ -1556,7 +1738,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               type="button"
               disabled={busy}
               onClick={async () => {
-                const total = Math.min(100000, Math.max(0, Math.floor(totalCountDraft)));
+                const total = parseNonNegativeInt(totalCountInput, 100000);
                 const spares = Math.min(
                   10000,
                   isInventorySparesOnly
@@ -1564,6 +1746,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                     : Math.max(0, total - part.quantity)
                 );
                 setBusy(true);
+                setActionError('');
                 try {
                   if (part.sourceParts.length === 1) {
                     const ref = part.sourceParts[0];
@@ -1574,47 +1757,66 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                     });
                   } else if (isInventorySparesOnly) {
                     let remainingTotal = total;
-                    for (let i = 0; i < part.sourceParts.length; i++) {
-                      const ref = part.sourceParts[i];
-                      const isLast = i === part.sourceParts.length - 1;
+                    const tasks = part.sourceParts.map((ref, idx) => {
+                      const isLast = idx === part.sourceParts.length - 1;
                       const requestedForRef = ref.part.sparesRequested || 0;
                       const alloc = Math.min(
                         10000,
-                        isLast
-                          ? remainingTotal
-                          : Math.min(remainingTotal, requestedForRef)
+                        Math.max(
+                          0,
+                          isLast
+                            ? remainingTotal
+                            : Math.min(remainingTotal, requestedForRef)
+                        )
                       );
                       remainingTotal = Math.max(0, remainingTotal - alloc);
-                      await updatePart(projectId, ref.subassemblyId, ref.part.id, {
+                      return updatePart(projectId, ref.subassemblyId, ref.part.id, {
                         status: statusDraft,
                         totalOrdered: alloc,
                         sparesCount: alloc,
                       });
-                    }
+                    });
+                    await Promise.all(tasks);
                   } else {
                     let remainingTotal = total;
-                    for (let i = 0; i < part.sourceParts.length; i++) {
-                      const ref = part.sourceParts[i];
-                      const isLast = i === part.sourceParts.length - 1;
-                      const alloc = isLast
-                        ? remainingTotal
-                        : Math.min(remainingTotal, ref.part.quantity);
-                      remainingTotal -= alloc;
-                      const subSpares = Math.min(10000, Math.max(0, alloc - ref.part.quantity));
-                      await updatePart(projectId, ref.subassemblyId, ref.part.id, {
+                    const tasks = part.sourceParts.map((ref, idx) => {
+                      const isLast = idx === part.sourceParts.length - 1;
+                      const alloc = Math.min(
+                        100000,
+                        Math.max(
+                          0,
+                          isLast
+                            ? remainingTotal
+                            : Math.min(remainingTotal, ref.part.quantity)
+                        )
+                      );
+                      remainingTotal = Math.max(0, remainingTotal - alloc);
+                      const subSpares = Math.min(
+                        10000,
+                        Math.max(0, alloc - ref.part.quantity)
+                      );
+                      return updatePart(projectId, ref.subassemblyId, ref.part.id, {
                         status: statusDraft,
                         totalOrdered: alloc,
                         sparesCount: subSpares,
                       });
-                    }
+                    });
+                    await Promise.all(tasks);
                   }
                   pushToast('success', 'Purchase order status synced.');
                   onClose();
+                } catch (err) {
+                  const msg = extractReadableError(
+                    err,
+                    'Failed to save purchase order.'
+                  );
+                  setActionError(msg);
+                  pushToast('error', msg);
                 } finally {
                   setBusy(false);
                 }
               }}
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
             >
               {busy ? 'Saving...' : 'Save Approval'}
             </button>
@@ -1624,7 +1826,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
     );
   }
 
-  // 15. In-Progress Custom In-House Machining Details Pop-up
+  // 15. In-Progress / Machinist Details Pop-up
   if (modal.type === 'in-progress-details') {
     const completedMachines = part.machinesUsed || [];
     const assignedMachines = part.machines || [];
@@ -1645,7 +1847,11 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
       <Modal
         open
         onClose={onClose}
-        title="In-Progress Machining Update"
+        title={
+          part.status === 'In-Progress'
+            ? 'In-Progress Machining Update'
+            : 'Machining Progress & Notes'
+        }
         subtitle={`${partTag} · ${part.name}`}
         maxWidth="md"
       >

@@ -7,6 +7,7 @@ interface ModalProps {
   title: string;
   subtitle?: string;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
+  preventClose?: boolean;
   children: React.ReactNode;
 }
 
@@ -25,16 +26,17 @@ export const Modal: React.FC<ModalProps> = ({
   title,
   subtitle,
   maxWidth = 'lg',
+  preventClose = false,
   children,
 }) => {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !preventClose) onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  }, [open, onClose, preventClose]);
 
   if (!open) return null;
 
@@ -42,7 +44,7 @@ export const Modal: React.FC<ModalProps> = ({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-[2px]"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !preventClose) onClose();
       }}
       role="dialog"
       aria-modal="true"
@@ -64,9 +66,12 @@ export const Modal: React.FC<ModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            disabled={preventClose}
+            onClick={() => {
+              if (!preventClose) onClose();
+            }}
             aria-label="Close dialog"
-            className="p-2 -mr-1 rounded-lg text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors active:scale-95 shrink-0"
+            className="p-2 -mr-1 rounded-lg text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors active:scale-95 shrink-0 disabled:opacity-40"
           >
             <X className="w-4 h-4" />
           </button>

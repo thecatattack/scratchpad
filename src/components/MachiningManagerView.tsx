@@ -212,6 +212,30 @@ export const MachiningManagerView: React.FC<MachiningManagerViewProps> = ({
               <span className="font-medium">{p.assignedMachinist}</span>
             </div>
           ) : null}
+          {(p.totalMachined || 0) > 0 || (p.machinesUsed && p.machinesUsed.length > 0) ? (
+            <div>
+              <span className="text-zinc-500">Progress: </span>
+              <span className="font-medium font-mono-tabular text-zinc-800 dark:text-zinc-200">
+                {p.totalMachined || 0} / {p.quantity} machined
+              </span>
+              {p.machinesUsed && p.machinesUsed.length > 0 ? (
+                <span className="text-zinc-500">
+                  {' '}
+                  · Done: {p.machinesUsed.join(', ')}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {p.machiningNotes?.trim() ? (
+            <div className="mt-1.5 p-2 rounded-lg bg-zinc-50 dark:bg-[#09090B] border border-zinc-200/70 dark:border-zinc-800/80 text-[11px] text-zinc-700 dark:text-zinc-300">
+              <span className="text-zinc-500 font-semibold block mb-0.5">
+                Machinist Notes
+              </span>
+              <p className="whitespace-pre-wrap line-clamp-3">
+                {p.machiningNotes.trim()}
+              </p>
+            </div>
+          ) : null}
         </div>
       </div>
 
