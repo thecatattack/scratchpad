@@ -1,0 +1,6 @@
+{
+  "name": "Cat Attack #451 — Parts & BOM Tracker",
+  "description": "FRC Team #451 Cat Attack parts, Bill of Materials, machining queue, and purchase request tracker.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

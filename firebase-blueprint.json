@@ -1,0 +1,358 @@
+{
+  "entities": {
+    "AdminEntry": {
+      "title": "AdminEntry",
+      "description": "Trusted administrator account record.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "createdAt"]
+    },
+    "MachineRoster": {
+      "title": "MachineRoster",
+      "description": "Team shop machine list editable from Admin mode.",
+      "type": "object",
+      "properties": {
+        "teamCode": {
+          "type": "string",
+          "enum": ["FRC451"]
+        },
+        "machines": {
+          "type": "array",
+          "description": "Up to 50 machine names."
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["teamCode", "machines", "updatedBy", "updatedAt"]
+    },
+    "StorageUsage": {
+      "title": "StorageUsage",
+      "description": "Blaze free-tier storage quota guard tracking total bytes and monthly upload operations.",
+      "type": "object",
+      "properties": {
+        "teamCode": {
+          "type": "string",
+          "enum": ["FRC451"]
+        },
+        "totalBytesUsed": {
+          "type": "integer"
+        },
+        "fileCount": {
+          "type": "integer"
+        },
+        "monthlyUploadsCount": {
+          "type": "integer"
+        },
+        "monthKey": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^[0-9]{4}-[0-9]{2}$"
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["teamCode", "totalBytesUsed", "fileCount", "monthlyUploadsCount", "monthKey", "updatedBy", "updatedAt"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "FRC robot or mechanism project containing subassemblies and BOMs.",
+      "type": "object",
+      "properties": {
+        "teamCode": {
+          "type": "string",
+          "enum": ["FRC451"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "coverImageUrl": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "editorPassword": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["teamCode", "name", "coverImageUrl", "editorPassword", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Subassembly": {
+      "title": "Subassembly",
+      "description": "Named robot subassembly within a project.",
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamCode": {
+          "type": "string",
+          "enum": ["FRC451"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "assemblyNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["projectId", "teamCode", "name", "assemblyNumber", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Part": {
+      "title": "Part",
+      "description": "Part record inside a subassembly with manufacturing, material, files, and workflow status.",
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "subassemblyId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamCode": {
+          "type": "string",
+          "enum": ["FRC451"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "partNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "quantity": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["Custom", "COTS"]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["In-House", "Outsourced", "Purchased", "Inventory"]
+        },
+        "vendor": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "manufacturer": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "costsMoney": {
+          "type": "boolean"
+        },
+        "machines": {
+          "type": "array"
+        },
+        "materialCategory": {
+          "type": "string",
+          "enum": ["", "3D Printer Filaments", "Resin", "Stock Material"]
+        },
+        "materialName": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "stockShape": {
+          "type": "string",
+          "enum": ["", "Box Tube", "Plate", "Tube"]
+        },
+        "dimensions": {
+          "type": "object"
+        },
+        "pictureUrl": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "drawingPdf": {
+          "type": "object"
+        },
+        "attachedFiles": {
+          "type": "array"
+        },
+        "identicalGroupId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Not Started", "Requested", "In-Progress", "Denied", "Shipping", "Obtained"]
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["Low Priority", "Regular Priority", "High Priority", "Critical Priority"]
+        },
+        "assignedMachinist": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "vendorLink": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "sparesRequested": {
+          "type": "integer"
+        },
+        "sparesCount": {
+          "type": "integer"
+        },
+        "totalMachined": {
+          "type": "integer"
+        },
+        "totalOrdered": {
+          "type": "integer"
+        },
+        "machinesUsed": {
+          "type": "array"
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "projectId",
+        "subassemblyId",
+        "teamCode",
+        "name",
+        "partNumber",
+        "quantity",
+        "type",
+        "source",
+        "vendor",
+        "manufacturer",
+        "costsMoney",
+        "machines",
+        "materialCategory",
+        "materialName",
+        "stockShape",
+        "dimensions",
+        "pictureUrl",
+        "attachedFiles",
+        "identicalGroupId",
+        "notes",
+        "status",
+        "priority",
+        "assignedMachinist",
+        "vendorLink",
+        "sparesRequested",
+        "sparesCount",
+        "totalMachined",
+        "totalOrdered",
+        "machinesUsed",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminEntry" },
+      "description": "Team admin records."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/MachineRoster" },
+      "description": "Shop machine roster configuration document (machines)."
+    },
+    "/storageMeta/{docId}": {
+      "schema": { "$ref": "#/entities/StorageUsage" },
+      "description": "Firebase Storage free-tier quota guard ledger (usage)."
+    },
+    "/projects/{projectId}": {
+      "schema": { "$ref": "#/entities/Project" },
+      "description": "FRC #451 robot projects."
+    },
+    "/projects/{projectId}/subassemblies/{subassemblyId}": {
+      "schema": { "$ref": "#/entities/Subassembly" },
+      "description": "Subassemblies belonging to a project."
+    },
+    "/projects/{projectId}/subassemblies/{subassemblyId}/parts/{partId}": {
+      "schema": { "$ref": "#/entities/Part" },
+      "description": "Parts belonging to a subassembly."
+    }
+  }
+}

@@ -1,0 +1,326 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core primitives
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'evanfromthecatattack@gmail.com'
+      );
+    }
+
+    // Validation helpers (no existing() or diff() inside validators)
+    function isValidAdminEntry(data, uid) {
+      return data.keys().hasAll(['uid', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'createdAt'])
+        && isValidId(data.uid)
+        && data.uid == uid
+        && data.createdAt is timestamp;
+    }
+
+    function isValidMachineRoster(data) {
+      return data.keys().hasAll(['teamCode', 'machines', 'updatedBy', 'updatedAt'])
+        && data.keys().hasOnly(['teamCode', 'machines', 'updatedBy', 'updatedAt'])
+        && data.teamCode == 'FRC451'
+        && data.machines is list
+        && data.machines.size() <= 50
+        && (data.machines.size() == 0 || (data.machines[0] is string && data.machines[0].size() >= 1 && data.machines[0].size() <= 60))
+        && data.updatedBy is string
+        && data.updatedBy.size() >= 1
+        && data.updatedBy.size() <= 128
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStorageUsage(data) {
+      return data.keys().hasAll(['teamCode', 'totalBytesUsed', 'fileCount', 'monthlyUploadsCount', 'monthKey', 'updatedBy', 'updatedAt'])
+        && data.keys().hasOnly(['teamCode', 'totalBytesUsed', 'fileCount', 'monthlyUploadsCount', 'monthKey', 'updatedBy', 'updatedAt'])
+        && data.teamCode == 'FRC451'
+        && data.totalBytesUsed is int && data.totalBytesUsed >= 0 && data.totalBytesUsed <= 4294967296
+        && data.fileCount is int && data.fileCount >= 0 && data.fileCount <= 50000
+        && data.monthlyUploadsCount is int && data.monthlyUploadsCount >= 0 && data.monthlyUploadsCount <= 4500
+        && data.monthKey is string && data.monthKey.size() == 7 && data.monthKey.matches('^[0-9]{4}-[0-9]{2}$')
+        && data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidProject(data) {
+      return data.keys().hasAll(['teamCode', 'name', 'coverImageUrl', 'editorPassword', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['teamCode', 'name', 'coverImageUrl', 'editorPassword', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.teamCode == 'FRC451'
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.coverImageUrl is string && data.coverImageUrl.size() <= 2000
+        && data.editorPassword is string && data.editorPassword.size() >= 1 && data.editorPassword.size() <= 64
+        && data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSubassembly(data, projectId) {
+      return data.keys().hasAll(['projectId', 'teamCode', 'name', 'assemblyNumber', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['projectId', 'teamCode', 'name', 'assemblyNumber', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.projectId)
+        && data.projectId == projectId
+        && data.teamCode == 'FRC451'
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.assemblyNumber is string && data.assemblyNumber.size() >= 1 && data.assemblyNumber.size() <= 40
+        && data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDimensions(dims) {
+      return dims is map
+        && dims.keys().hasOnly(['length', 'width', 'height', 'thickness', 'innerDiameter', 'outerDiameter'])
+        && (!('length' in dims) || (dims.length is string && dims.length.size() <= 30))
+        && (!('width' in dims) || (dims.width is string && dims.width.size() <= 30))
+        && (!('height' in dims) || (dims.height is string && dims.height.size() <= 30))
+        && (!('thickness' in dims) || (dims.thickness is string && dims.thickness.size() <= 30))
+        && (!('innerDiameter' in dims) || (dims.innerDiameter is string && dims.innerDiameter.size() <= 30))
+        && (!('outerDiameter' in dims) || (dims.outerDiameter is string && dims.outerDiameter.size() <= 30));
+    }
+
+    function isValidDrawingPdf(pdf) {
+      return pdf == null || (
+        pdf is map
+        && pdf.keys().hasAll(['name', 'size', 'url', 'storagePath'])
+        && pdf.keys().hasOnly(['name', 'size', 'url', 'storagePath'])
+        && pdf.name is string && pdf.name.size() >= 1 && pdf.name.size() <= 200
+        && pdf.size is int && pdf.size >= 0 && pdf.size <= 10485760
+        && pdf.url is string && pdf.url.size() >= 1 && pdf.url.size() <= 2000
+        && pdf.storagePath is string && pdf.storagePath.size() >= 1 && pdf.storagePath.size() <= 500
+      );
+    }
+
+    function isValidPart(data, projectId, subassemblyId) {
+      return data.keys().hasAll([
+          'projectId', 'subassemblyId', 'teamCode', 'name', 'partNumber', 'quantity',
+          'type', 'source', 'vendor', 'manufacturer', 'costsMoney', 'machines',
+          'materialCategory', 'materialName', 'stockShape', 'dimensions', 'pictureUrl',
+          'drawingPdf', 'attachedFiles', 'identicalGroupId', 'notes', 'status',
+          'priority', 'assignedMachinist', 'vendorLink', 'sparesRequested', 'sparesCount',
+          'totalMachined', 'totalOrdered', 'machinesUsed', 'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'projectId', 'subassemblyId', 'teamCode', 'name', 'partNumber', 'quantity',
+          'type', 'source', 'vendor', 'manufacturer', 'costsMoney', 'machines',
+          'materialCategory', 'materialName', 'stockShape', 'dimensions', 'pictureUrl',
+          'drawingPdf', 'attachedFiles', 'identicalGroupId', 'notes', 'status',
+          'priority', 'assignedMachinist', 'vendorLink', 'sparesRequested', 'sparesCount',
+          'totalMachined', 'totalOrdered', 'machinesUsed', 'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.projectId) && data.projectId == projectId
+        && isValidId(data.subassemblyId) && data.subassemblyId == subassemblyId
+        && data.teamCode == 'FRC451'
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.partNumber is string && data.partNumber.size() >= 1 && data.partNumber.size() <= 60
+        && data.quantity is int && data.quantity >= 1 && data.quantity <= 100000
+        && data.type in ['Custom', 'COTS']
+        && data.source in ['In-House', 'Outsourced', 'Purchased', 'Inventory']
+        && data.vendor is string && data.vendor.size() <= 80
+        && data.manufacturer is string && data.manufacturer.size() <= 80
+        && data.costsMoney is bool
+        && data.machines is list && data.machines.size() <= 25
+        && (data.machines.size() == 0 || (data.machines[0] is string && data.machines[0].size() <= 60))
+        && data.materialCategory in ['', '3D Printer Filaments', 'Resin', 'Stock Material']
+        && data.materialName is string && data.materialName.size() <= 80
+        && data.stockShape in ['', 'Box Tube', 'Plate', 'Tube']
+        && isValidDimensions(data.dimensions)
+        && data.pictureUrl is string && data.pictureUrl.size() <= 2000
+        && isValidDrawingPdf(data.drawingPdf)
+        && data.attachedFiles is list && data.attachedFiles.size() <= 15
+        && (data.attachedFiles.size() == 0 || (data.attachedFiles[0] is map && data.attachedFiles[0].keys().hasOnly(['name', 'size', 'url', 'storagePath', 'contentType'])))
+        && data.identicalGroupId is string && data.identicalGroupId.size() <= 128
+        && data.notes is string && data.notes.size() <= 2000
+        && data.status in ['Not Started', 'Requested', 'In-Progress', 'Denied', 'Shipping', 'Obtained']
+        && data.priority in ['Low Priority', 'Regular Priority', 'High Priority', 'Critical Priority']
+        && data.assignedMachinist is string && data.assignedMachinist.size() <= 80
+        && data.vendorLink is string && data.vendorLink.size() <= 1000
+        && data.sparesRequested is int && data.sparesRequested >= 0 && data.sparesRequested <= 10000
+        && data.sparesCount is int && data.sparesCount >= 0 && data.sparesCount <= 10000
+        && data.totalMachined is int && data.totalMachined >= 0 && data.totalMachined <= 100000
+        && data.totalOrdered is int && data.totalOrdered >= 0 && data.totalOrdered <= 100000
+        && data.machinesUsed is list && data.machinesUsed.size() <= 25
+        && (data.machinesUsed.size() == 0 || (data.machinesUsed[0] is string && data.machinesUsed[0].size() <= 60))
+        && data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Admins collection
+    match /admins/{uid} {
+      allow get: if isVerifiedUser() && isValidId(uid) && (request.auth.uid == uid || isAdmin());
+      allow list: if false;
+      allow create: if isAdmin() && isValidId(uid) && isValidAdminEntry(incoming(), uid) && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(uid);
+    }
+
+    // Shop settings (machines roster)
+    match /settings/{settingId} {
+      allow get: if isVerifiedUser() && isValidId(settingId) && settingId == 'machines';
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidId(settingId)
+        && settingId == 'machines'
+        && isValidMachineRoster(incoming())
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(settingId)
+        && settingId == 'machines'
+        && isValidMachineRoster(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['machines', 'updatedBy', 'updatedAt'])
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // Storage free-tier quota guard ledger
+    match /storageMeta/{docId} {
+      allow get: if isVerifiedUser() && isValidId(docId) && docId == 'usage';
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidId(docId)
+        && docId == 'usage'
+        && isValidStorageUsage(incoming())
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(docId)
+        && docId == 'usage'
+        && isValidStorageUsage(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['totalBytesUsed', 'fileCount', 'monthlyUploadsCount', 'monthKey', 'updatedBy', 'updatedAt'])
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // Projects
+    match /projects/{projectId} {
+      allow get: if isVerifiedUser() && isValidId(projectId);
+      allow list: if isVerifiedUser() && resource.data.teamCode == 'FRC451';
+      allow create: if isVerifiedUser()
+        && isValidId(projectId)
+        && isValidProject(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(projectId)
+        && isValidProject(incoming())
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'coverImageUrl', 'editorPassword', 'updatedAt'])
+        );
+      allow delete: if isVerifiedUser() && isValidId(projectId);
+
+      // Subassemblies
+      match /subassemblies/{subassemblyId} {
+        allow get: if isVerifiedUser() && isValidId(projectId) && isValidId(subassemblyId);
+        allow list: if isVerifiedUser() && resource.data.teamCode == 'FRC451';
+        allow create: if isVerifiedUser()
+          && isValidId(projectId)
+          && isValidId(subassemblyId)
+          && isValidSubassembly(incoming(), projectId)
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/projects/$(projectId));
+        allow update: if isVerifiedUser()
+          && isValidId(projectId)
+          && isValidId(subassemblyId)
+          && isValidSubassembly(incoming(), projectId)
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            isAdmin()
+            || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'assemblyNumber', 'updatedAt'])
+          );
+        allow delete: if isVerifiedUser() && isValidId(projectId) && isValidId(subassemblyId);
+
+        // Parts
+        match /parts/{partId} {
+          allow get: if isVerifiedUser() && isValidId(projectId) && isValidId(subassemblyId) && isValidId(partId);
+          allow list: if isVerifiedUser() && resource.data.teamCode == 'FRC451';
+          allow create: if isVerifiedUser()
+            && isValidId(projectId)
+            && isValidId(subassemblyId)
+            && isValidId(partId)
+            && isValidPart(incoming(), projectId, subassemblyId)
+            && incoming().createdBy == request.auth.uid
+            && incoming().createdAt == request.time
+            && incoming().updatedAt == request.time
+            && exists(/databases/$(database)/documents/projects/$(projectId)/subassemblies/$(subassemblyId));
+          allow update: if isVerifiedUser()
+            && isValidId(projectId)
+            && isValidId(subassemblyId)
+            && isValidPart(incoming(), projectId, subassemblyId)
+            && incoming().createdBy == existing().createdBy
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && (
+              isAdmin()
+              // Action 1: Full Parts Manager property re-edit (resets workflow fields)
+              || incoming().diff(existing()).affectedKeys().hasOnly([
+                'name', 'partNumber', 'quantity', 'type', 'source', 'vendor', 'manufacturer',
+                'costsMoney', 'machines', 'materialCategory', 'materialName', 'stockShape',
+                'dimensions', 'pictureUrl', 'drawingPdf', 'attachedFiles', 'identicalGroupId',
+                'notes', 'status', 'priority', 'assignedMachinist', 'vendorLink',
+                'sparesRequested', 'sparesCount', 'totalMachined', 'totalOrdered', 'machinesUsed',
+                'updatedAt'
+              ])
+              // Action 2: Notes / Files / Drawing PDF quick updates
+              || incoming().diff(existing()).affectedKeys().hasOnly(['notes', 'updatedAt'])
+              || incoming().diff(existing()).affectedKeys().hasOnly(['drawingPdf', 'updatedAt'])
+              || incoming().diff(existing()).affectedKeys().hasOnly(['attachedFiles', 'updatedAt'])
+              // Action 3: Parts Manager Request / Status / Spares actions
+              || incoming().diff(existing()).affectedKeys().hasOnly([
+                'status', 'priority', 'assignedMachinist', 'sparesRequested', 'notes', 'vendorLink', 'updatedAt'
+              ])
+              || incoming().diff(existing()).affectedKeys().hasOnly(['sparesCount', 'updatedAt'])
+              // Action 4: Machining Manager update
+              || incoming().diff(existing()).affectedKeys().hasOnly([
+                'machinesUsed', 'status', 'totalMachined', 'sparesCount', 'updatedAt'
+              ])
+              // Action 5: Spending Manager update
+              || incoming().diff(existing()).affectedKeys().hasOnly([
+                'status', 'totalOrdered', 'sparesCount', 'updatedAt'
+              ])
+            );
+          allow delete: if isVerifiedUser() && isValidId(projectId) && isValidId(subassemblyId) && isValidId(partId);
+        }
+      }
+    }
+  }
+}
