@@ -2324,16 +2324,26 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                     ).includes(p.status) ? null : (
                       <select
                         value={p.status}
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const next = e.target.value as PartStatus;
-                          p.sourceParts.forEach((ref) => {
-                            void updatePart(
-                              selectedProject.id,
-                              ref.subassemblyId,
-                              ref.part.id,
-                              { status: next }
+                          try {
+                            await Promise.all(
+                              p.sourceParts.map((ref) =>
+                                updatePart(
+                                  selectedProject.id,
+                                  ref.subassemblyId,
+                                  ref.part.id,
+                                  { status: next }
+                                )
+                              )
                             );
-                          });
+                            pushToast('success', `Updated status for "${p.name}" to ${next}.`);
+                          } catch (err) {
+                            pushToast(
+                              'error',
+                              err instanceof Error ? err.message : 'Failed to update status.'
+                            );
+                          }
                         }}
                         className="px-2 py-1 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-[11px]"
                       >
@@ -2470,16 +2480,31 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                           ).includes(p.status) ? (
                             <select
                               value={p.status}
-                              onChange={(e) => {
+                              onChange={async (e) => {
                                 const next = e.target.value as PartStatus;
-                                p.sourceParts.forEach((ref) => {
-                                  void updatePart(
-                                    selectedProject.id,
-                                    ref.subassemblyId,
-                                    ref.part.id,
-                                    { status: next }
+                                try {
+                                  await Promise.all(
+                                    p.sourceParts.map((ref) =>
+                                      updatePart(
+                                        selectedProject.id,
+                                        ref.subassemblyId,
+                                        ref.part.id,
+                                        { status: next }
+                                      )
+                                    )
                                   );
-                                });
+                                  pushToast(
+                                    'success',
+                                    `Updated status for "${p.name}" to ${next}.`
+                                  );
+                                } catch (err) {
+                                  pushToast(
+                                    'error',
+                                    err instanceof Error
+                                      ? err.message
+                                      : 'Failed to update status.'
+                                  );
+                                }
                               }}
                               className="px-2 py-1 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-xs"
                             >

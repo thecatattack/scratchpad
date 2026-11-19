@@ -740,63 +740,500 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!user) throw new Error('Must be signed in.');
       const path = `projects/${projectId}/subassemblies/${subassemblyId}/parts/${partId}`;
       const actorLabel = getUserActorLabel(user);
+      const partRef = doc(
+        db,
+        'projects',
+        projectId,
+        'subassemblies',
+        subassemblyId,
+        'parts',
+        partId
+      );
+
+      const cleanUpdates: Record<string, unknown> = { ...updates };
+      delete cleanUpdates.id;
+      delete cleanUpdates.projectId;
+      delete cleanUpdates.subassemblyId;
+      delete cleanUpdates.teamCode;
+      delete cleanUpdates.createdBy;
+      delete cleanUpdates.createdByName;
+      delete cleanUpdates.createdAt;
+      delete cleanUpdates.updatedBy;
+      delete cleanUpdates.updatedByName;
+      delete cleanUpdates.updatedAt;
+      delete cleanUpdates.requestedBy;
+      delete cleanUpdates.requestedByName;
+      delete cleanUpdates.requestedAt;
+
+      const isFullPropertyReset =
+        'name' in cleanUpdates && 'partNumber' in cleanUpdates;
+      const isShopFloorOrSpendingUpdate =
+        !isFullPropertyReset &&
+        ('totalMachined' in cleanUpdates ||
+          'totalOrdered' in cleanUpdates ||
+          'machinesUsed' in cleanUpdates ||
+          'machiningNotes' in cleanUpdates);
+
+      const isRequesting =
+        !isShopFloorOrSpendingUpdate &&
+        (cleanUpdates.status === 'Requested' ||
+          (typeof cleanUpdates.sparesRequested === 'number' &&
+            cleanUpdates.sparesRequested > 0));
+      const isClearingRequest =
+        !isShopFloorOrSpendingUpdate &&
+        (cleanUpdates.status === 'Not Started' ||
+          (cleanUpdates.status === 'Obtained' &&
+            cleanUpdates.sparesRequested === 0));
+
+      if (isRequesting) {
+        cleanUpdates.requestedBy = user.uid;
+        cleanUpdates.requestedByName = actorLabel;
+        cleanUpdates.requestedAt = serverTimestamp();
+      } else if (isClearingRequest) {
+        cleanUpdates.requestedBy = '';
+        cleanUpdates.requestedByName = '';
+        cleanUpdates.requestedAt = null;
+      }
+
+      const payload: Record<string, unknown> = {
+        ...cleanUpdates,
+        updatedBy: user.uid,
+        updatedByName: actorLabel,
+        updatedAt: serverTimestamp(),
+      };
+
       try {
-        const cleanUpdates: Record<string, unknown> = { ...updates };
-        delete cleanUpdates.id;
-        delete cleanUpdates.projectId;
-        delete cleanUpdates.subassemblyId;
-        delete cleanUpdates.teamCode;
-        delete cleanUpdates.createdBy;
-        delete cleanUpdates.createdByName;
-        delete cleanUpdates.createdAt;
-        delete cleanUpdates.updatedBy;
-        delete cleanUpdates.updatedByName;
-        delete cleanUpdates.updatedAt;
-        delete cleanUpdates.requestedBy;
-        delete cleanUpdates.requestedByName;
-        delete cleanUpdates.requestedAt;
+        await updateDoc(partRef, payload);
+      } catch (err) {
+        const errCode = (err as { code?: string })?.code;
+        const rawMsg = err instanceof Error ? err.message : String(err);
+        const isPermError =
+          errCode === 'permission-denied' ||
+          rawMsg.includes('Missing or insufficient permissions') ||
+          rawMsg.includes('PERMISSION_DENIED');
 
-        const isFullPropertyReset =
-          'name' in cleanUpdates && 'partNumber' in cleanUpdates;
-        const isShopFloorOrSpendingUpdate =
-          !isFullPropertyReset &&
-          ('totalMachined' in cleanUpdates ||
-            'totalOrdered' in cleanUpdates ||
-            'machinesUsed' in cleanUpdates ||
-            'machiningNotes' in cleanUpdates);
-
-        const isRequesting =
-          !isShopFloorOrSpendingUpdate &&
-          (cleanUpdates.status === 'Requested' ||
-            (typeof cleanUpdates.sparesRequested === 'number' &&
-              cleanUpdates.sparesRequested > 0));
-        const isClearingRequest =
-          !isShopFloorOrSpendingUpdate &&
-          (cleanUpdates.status === 'Not Started' ||
-            (cleanUpdates.status === 'Obtained' &&
-              cleanUpdates.sparesRequested === 0));
-
-        if (isRequesting) {
-          cleanUpdates.requestedBy = user.uid;
-          cleanUpdates.requestedByName = actorLabel;
-          cleanUpdates.requestedAt = serverTimestamp();
-        } else if (isClearingRequest) {
-          cleanUpdates.requestedBy = '';
-          cleanUpdates.requestedByName = '';
-          cleanUpdates.requestedAt = null;
+        if (!isPermError) {
+          handleFirestoreError(err, OperationType.UPDATE, path);
         }
 
-        await updateDoc(
-          doc(db, 'projects', projectId, 'subassemblies', subassemblyId, 'parts', partId),
-          {
-            ...cleanUpdates,
-            updatedBy: user.uid,
-            updatedByName: actorLabel,
-            updatedAt: serverTimestamp(),
+        // Diagnose why Firestore rejected the update against existing document fields
+        const failures: string[] = [];
+        try {
+          const snap = await getDoc(partRef);
+          if (!snap.exists()) {
+            failures.push('document does not exist in Firestore');
+          } else {
+            const existing = snap.data() as Record<string, unknown>;
+            const merged: Record<string, unknown> = { ...existing, ...payload };
+
+            const defaultableMutableFields: Record<string, unknown> = {
+              vendor: '',
+              manufacturer: '',
+              costsMoney: false,
+              machines: [],
+              materialCategory: '',
+              materialName: '',
+              stockShape: '',
+              dimensions: {},
+              pictureUrl: '',
+              drawingPdf: null,
+              attachedFiles: [],
+              identicalGroupId: '',
+              notes: '',
+              assignedMachinist: '',
+              vendorLink: '',
+              sparesRequested: 0,
+              sparesCount: 0,
+              totalMachined: 0,
+              totalOrdered: 0,
+              machinesUsed: [],
+            };
+
+            const requiredKeys = [
+              'projectId',
+              'subassemblyId',
+              'teamCode',
+              'name',
+              'partNumber',
+              'quantity',
+              'type',
+              'source',
+              'vendor',
+              'manufacturer',
+              'costsMoney',
+              'machines',
+              'materialCategory',
+              'materialName',
+              'stockShape',
+              'dimensions',
+              'pictureUrl',
+              'drawingPdf',
+              'attachedFiles',
+              'identicalGroupId',
+              'notes',
+              'status',
+              'priority',
+              'assignedMachinist',
+              'vendorLink',
+              'sparesRequested',
+              'sparesCount',
+              'totalMachined',
+              'totalOrdered',
+              'machinesUsed',
+              'createdBy',
+              'createdAt',
+              'updatedAt',
+            ];
+            const allowedKeys = new Set([
+              ...requiredKeys,
+              'revision',
+              'machiningNotes',
+              'createdByName',
+              'updatedBy',
+              'updatedByName',
+              'requestedBy',
+              'requestedByName',
+              'requestedAt',
+            ]);
+
+            const missingKeys = requiredKeys.filter((k) => !(k in merged));
+            const extraKeys = Object.keys(merged).filter(
+              (k) => !allowedKeys.has(k)
+            );
+
+            // Auto-retry once if only safe mutable default fields were missing on a legacy doc
+            if (
+              missingKeys.length > 0 &&
+              missingKeys.every((k) => k in defaultableMutableFields) &&
+              extraKeys.length === 0 &&
+              'createdBy' in existing &&
+              'createdAt' in existing
+            ) {
+              const backfill: Record<string, unknown> = { ...payload };
+              for (const k of missingKeys) {
+                backfill[k] = defaultableMutableFields[k];
+              }
+              try {
+                await updateDoc(partRef, backfill);
+                return;
+              } catch {
+                // Fall through to full diagnostics if retry still fails
+              }
+            }
+
+            if (!user.emailVerified) failures.push('emailVerified=false');
+            if (missingKeys.length > 0) {
+              failures.push(`missingKeys=[${missingKeys.join(',')}]`);
+            }
+            if (extraKeys.length > 0) {
+              failures.push(`extraKeys=[${extraKeys.join(',')}]`);
+            }
+            if (merged.projectId !== projectId) {
+              failures.push(
+                `projectId mismatch (${String(merged.projectId)} != ${projectId})`
+              );
+            }
+            if (merged.subassemblyId !== subassemblyId) {
+              failures.push(
+                `subassemblyId mismatch (${String(merged.subassemblyId)} != ${subassemblyId})`
+              );
+            }
+            if (merged.teamCode !== 'FRC451') {
+              failures.push(`teamCode=${String(merged.teamCode)}`);
+            }
+            if (
+              typeof merged.name !== 'string' ||
+              merged.name.length < 1 ||
+              merged.name.length > 120
+            ) {
+              failures.push(`invalid name (${typeof merged.name})`);
+            }
+            if (
+              typeof merged.partNumber !== 'string' ||
+              merged.partNumber.length < 1 ||
+              merged.partNumber.length > 60
+            ) {
+              failures.push(`invalid partNumber (${typeof merged.partNumber})`);
+            }
+            if (
+              'revision' in merged &&
+              merged.revision !== null &&
+              (typeof merged.revision !== 'string' ||
+                merged.revision.length > 20)
+            ) {
+              failures.push(`invalid revision (${typeof merged.revision})`);
+            }
+            if (
+              typeof merged.quantity !== 'number' ||
+              !Number.isInteger(merged.quantity) ||
+              merged.quantity < 1 ||
+              merged.quantity > 100000
+            ) {
+              failures.push(`invalid quantity=${String(merged.quantity)}`);
+            }
+            if (merged.type !== 'Custom' && merged.type !== 'COTS') {
+              failures.push(`invalid type=${String(merged.type)}`);
+            }
+            if (
+              !['In-House', 'Outsourced', 'Purchased', 'Inventory'].includes(
+                String(merged.source)
+              )
+            ) {
+              failures.push(`invalid source=${String(merged.source)}`);
+            }
+            if (typeof merged.vendor !== 'string' || merged.vendor.length > 80) {
+              failures.push(`invalid vendor (${typeof merged.vendor})`);
+            }
+            if (
+              typeof merged.manufacturer !== 'string' ||
+              merged.manufacturer.length > 80
+            ) {
+              failures.push(
+                `invalid manufacturer (${typeof merged.manufacturer})`
+              );
+            }
+            if (typeof merged.costsMoney !== 'boolean') {
+              failures.push(`invalid costsMoney (${typeof merged.costsMoney})`);
+            }
+            if (
+              !Array.isArray(merged.machines) ||
+              merged.machines.length > 25 ||
+              (merged.machines.length > 0 &&
+                (typeof merged.machines[0] !== 'string' ||
+                  merged.machines[0].length > 60))
+            ) {
+              failures.push('invalid machines array');
+            }
+            if (
+              !['', '3D Printer Filaments', 'Resin', 'Stock Material'].includes(
+                String(merged.materialCategory)
+              )
+            ) {
+              failures.push(
+                `invalid materialCategory=${String(merged.materialCategory)}`
+              );
+            }
+            if (
+              typeof merged.materialName !== 'string' ||
+              merged.materialName.length > 80
+            ) {
+              failures.push(
+                `invalid materialName (${typeof merged.materialName})`
+              );
+            }
+            if (
+              !['', 'Box Tube', 'Plate', 'Tube'].includes(
+                String(merged.stockShape)
+              )
+            ) {
+              failures.push(`invalid stockShape=${String(merged.stockShape)}`);
+            }
+            const dims = merged.dimensions as Record<string, unknown> | null;
+            const allowedDims = new Set([
+              'length',
+              'width',
+              'height',
+              'thickness',
+              'innerDiameter',
+              'outerDiameter',
+            ]);
+            if (!dims || typeof dims !== 'object' || Array.isArray(dims)) {
+              failures.push('dimensions not map');
+            } else {
+              for (const [dk, dv] of Object.entries(dims)) {
+                if (!allowedDims.has(dk)) {
+                  failures.push(`unexpected dimension key ${dk}`);
+                } else if (typeof dv !== 'string' || dv.length > 30) {
+                  failures.push(`invalid dimension ${dk} (${typeof dv})`);
+                }
+              }
+            }
+            if (
+              typeof merged.pictureUrl !== 'string' ||
+              merged.pictureUrl.length > 2000
+            ) {
+              failures.push(
+                `invalid pictureUrl (type=${typeof merged.pictureUrl}, len=${
+                  typeof merged.pictureUrl === 'string'
+                    ? merged.pictureUrl.length
+                    : 'n/a'
+                })`
+              );
+            }
+            if (merged.drawingPdf !== null) {
+              const pdf = merged.drawingPdf as Record<string, unknown>;
+              if (
+                !pdf ||
+                typeof pdf !== 'object' ||
+                typeof pdf.name !== 'string' ||
+                pdf.name.length < 1 ||
+                pdf.name.length > 200 ||
+                typeof pdf.size !== 'number' ||
+                !Number.isInteger(pdf.size) ||
+                pdf.size < 0 ||
+                pdf.size > 10485760 ||
+                typeof pdf.url !== 'string' ||
+                pdf.url.length < 1 ||
+                pdf.url.length > 2000 ||
+                typeof pdf.storagePath !== 'string' ||
+                pdf.storagePath.length < 1 ||
+                pdf.storagePath.length > 500 ||
+                Object.keys(pdf).some(
+                  (k) =>
+                    !['name', 'size', 'url', 'storagePath', 'contentType'].includes(
+                      k
+                    )
+                )
+              ) {
+                failures.push(`invalid drawingPdf (${JSON.stringify(pdf)})`);
+              }
+            }
+            if (!Array.isArray(merged.attachedFiles) || merged.attachedFiles.length > 15) {
+              failures.push('invalid attachedFiles array');
+            } else if (merged.attachedFiles.length > 0) {
+              const firstFile = merged.attachedFiles[0] as Record<string, unknown>;
+              if (
+                !firstFile ||
+                typeof firstFile !== 'object' ||
+                Object.keys(firstFile).some(
+                  (k) =>
+                    !['name', 'size', 'url', 'storagePath', 'contentType'].includes(
+                      k
+                    )
+                )
+              ) {
+                failures.push(
+                  `invalid attachedFiles[0] keys=[${
+                    firstFile && typeof firstFile === 'object'
+                      ? Object.keys(firstFile).join(',')
+                      : typeof firstFile
+                  }]`
+                );
+              }
+            }
+            if (
+              typeof merged.identicalGroupId !== 'string' ||
+              merged.identicalGroupId.length > 128
+            ) {
+              failures.push(
+                `invalid identicalGroupId (${typeof merged.identicalGroupId})`
+              );
+            }
+            if (
+              typeof merged.notes !== 'string' ||
+              merged.notes.length > 2000
+            ) {
+              failures.push(
+                `invalid notes (type=${typeof merged.notes}, len=${
+                  typeof merged.notes === 'string' ? merged.notes.length : 'n/a'
+                })`
+              );
+            }
+            if (
+              ![
+                'Not Started',
+                'Requested',
+                'Needs Drawing',
+                'Needs CAM',
+                'Ready for Machine',
+                'In-Progress',
+                'Denied',
+                'Shipping',
+                'Obtained',
+              ].includes(String(merged.status))
+            ) {
+              failures.push(`invalid status=${String(merged.status)}`);
+            }
+            if (
+              ![
+                'Low Priority',
+                'Regular Priority',
+                'High Priority',
+                'Critical Priority',
+              ].includes(String(merged.priority))
+            ) {
+              failures.push(`invalid priority=${String(merged.priority)}`);
+            }
+            if (
+              typeof merged.assignedMachinist !== 'string' ||
+              merged.assignedMachinist.length > 80
+            ) {
+              failures.push(
+                `invalid assignedMachinist (${typeof merged.assignedMachinist})`
+              );
+            }
+            if (
+              typeof merged.vendorLink !== 'string' ||
+              merged.vendorLink.length > 1000
+            ) {
+              failures.push(`invalid vendorLink (${typeof merged.vendorLink})`);
+            }
+            for (const [intField, maxVal] of [
+              ['sparesRequested', 10000],
+              ['sparesCount', 10000],
+              ['totalMachined', 100000],
+              ['totalOrdered', 100000],
+            ] as const) {
+              const val = merged[intField];
+              if (
+                typeof val !== 'number' ||
+                !Number.isInteger(val) ||
+                val < 0 ||
+                val > maxVal
+              ) {
+                failures.push(`invalid ${intField}=${String(val)}`);
+              }
+            }
+            if (
+              !Array.isArray(merged.machinesUsed) ||
+              merged.machinesUsed.length > 25 ||
+              (merged.machinesUsed.length > 0 &&
+                (typeof merged.machinesUsed[0] !== 'string' ||
+                  merged.machinesUsed[0].length > 60))
+            ) {
+              failures.push('invalid machinesUsed array');
+            }
+            if (
+              'machiningNotes' in merged &&
+              merged.machiningNotes !== null &&
+              (typeof merged.machiningNotes !== 'string' ||
+                merged.machiningNotes.length > 1000)
+            ) {
+              failures.push(
+                `invalid machiningNotes (${typeof merged.machiningNotes})`
+              );
+            }
+            if (
+              typeof existing.createdBy !== 'string' ||
+              existing.createdBy.length < 1 ||
+              existing.createdBy.length > 128
+            ) {
+              failures.push(`invalid existing.createdBy=${String(existing.createdBy)}`);
+            }
+            if (!existing.createdAt) {
+              failures.push('missing existing.createdAt');
+            }
+
+            if (failures.length === 0) {
+              failures.push(
+                `payloadKeys=[${Object.keys(payload).join(',')}] email=${
+                  user.email ?? 'none'
+                }`
+              );
+            }
           }
+        } catch (diagErr) {
+          failures.push(
+            `diagReadFailed: ${
+              diagErr instanceof Error ? diagErr.message : String(diagErr)
+            }`
+          );
+        }
+
+        const detailedErr = new Error(
+          `${rawMsg} | Rule check: ${failures.join('; ')}`
         );
-      } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, path);
+        handleFirestoreError(detailedErr, OperationType.UPDATE, path);
       }
     },
     [user]
