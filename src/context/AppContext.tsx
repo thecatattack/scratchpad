@@ -12,6 +12,7 @@ import {
   signOut,
 } from 'firebase/auth';
 import {
+  Timestamp,
   collection,
   deleteDoc,
   doc,
@@ -1078,6 +1079,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
                 typeof pdf.storagePath !== 'string' ||
                 pdf.storagePath.length < 1 ||
                 pdf.storagePath.length > 500 ||
+                ('contentType' in pdf &&
+                  pdf.contentType !== null &&
+                  (typeof pdf.contentType !== 'string' ||
+                    pdf.contentType.length > 120)) ||
                 Object.keys(pdf).some(
                   (k) =>
                     !['name', 'size', 'url', 'storagePath', 'contentType'].includes(
@@ -1210,15 +1215,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             ) {
               failures.push(`invalid existing.createdBy=${String(existing.createdBy)}`);
             }
-            if (!existing.createdAt) {
-              failures.push('missing existing.createdAt');
+            for (const [nameField, maxLen, minLen] of [
+              ['createdByName', 120, 0],
+              ['updatedBy', 128, 1],
+              ['updatedByName', 120, 0],
+              ['requestedBy', 128, 0],
+              ['requestedByName', 120, 0],
+            ] as const) {
+              if (nameField in merged && merged[nameField] !== null) {
+                const v = merged[nameField];
+                if (
+                  typeof v !== 'string' ||
+                  v.length < minLen ||
+                  v.length > maxLen
+                ) {
+                  failures.push(
+                    `invalid ${nameField} (type=${typeof v}, val=${String(v).slice(0, 40)})`
+                  );
+                }
+              }
+            }
+            if (
+              'requestedAt' in merged &&
+              merged.requestedAt !== null &&
+              !(merged.requestedAt instanceof Timestamp) &&
+              !('requestedAt' in cleanUpdates)
+            ) {
+              failures.push(
+                `invalid existing.requestedAt (${typeof merged.requestedAt}: ${JSON.stringify(
+                  merged.requestedAt
+                )})`
+              );
+            }
+            if (!(existing.createdAt instanceof Timestamp)) {
+              failures.push(
+                `invalid existing.createdAt (${typeof existing.createdAt})`
+              );
             }
 
             if (failures.length === 0) {
+              const tokenResult = await user.getIdTokenResult().catch(() => null);
+              const tokenEmailVerified = tokenResult?.claims?.email_verified;
               failures.push(
-                `payloadKeys=[${Object.keys(payload).join(',')}] email=${
+                `ALL_CLIENT_CHECKS_PASSED uid=${user.uid} email=${
                   user.email ?? 'none'
-                }`
+                } tokenEmailVerified=${String(tokenEmailVerified)} payloadKeys=[${Object.keys(
+                  payload
+                ).join(',')}] existingKeysCount=${Object.keys(existing).length}`
               );
             }
           }

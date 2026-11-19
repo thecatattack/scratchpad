@@ -32,7 +32,7 @@ service cloud.firestore {
     function isAdmin() {
       return isVerifiedUser() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == 'evanfromthecatattack@gmail.com'
+        ('email' in request.auth.token && request.auth.token.email == 'evanfromthecatattack@gmail.com')
       );
     }
 
@@ -116,7 +116,7 @@ service cloud.firestore {
         && pdf.size is int && pdf.size >= 0 && pdf.size <= 10485760
         && pdf.url is string && pdf.url.size() >= 1 && pdf.url.size() <= 2000
         && pdf.storagePath is string && pdf.storagePath.size() >= 1 && pdf.storagePath.size() <= 500
-        && (!('contentType' in pdf) || (pdf.contentType is string && pdf.contentType.size() <= 120))
+        && (!('contentType' in pdf) || pdf.contentType == null || (pdf.contentType is string && pdf.contentType.size() <= 120))
       );
     }
 
