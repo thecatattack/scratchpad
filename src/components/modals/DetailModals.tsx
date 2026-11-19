@@ -74,9 +74,9 @@ function extractReadableError(err: unknown, fallback: string): string {
   if (!(err instanceof Error)) return fallback;
   const raw = err.message;
   try {
-    const parsed = JSON.parse(raw) as { error?: string };
+    const parsed = JSON.parse(raw) as { error?: string; path?: string | null };
     if (parsed && typeof parsed.error === 'string' && parsed.error.trim()) {
-      return parsed.error;
+      return parsed.path ? `${parsed.error} (${parsed.path})` : parsed.error;
     }
   } catch {
     // Not a JSON-wrapped Firestore error
