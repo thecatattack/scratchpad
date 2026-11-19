@@ -755,6 +755,21 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
               · Qty {quantity} · {pathway}
             </div>
           </div>
+          {picturePreview ? (
+            <button
+              type="button"
+              onClick={() => {
+                setPictureFile(null);
+                setPicturePreview('');
+                setPictureUrl('');
+              }}
+              title="Delete attached picture"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10 text-xs font-semibold shrink-0"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Remove Pic</span>
+            </button>
+          ) : null}
         </div>
 
         {/* STEP 1: Identity & Optional Picture */}
@@ -822,20 +837,41 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
                 <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Optional Part Picture (max 10 MB)
                 </label>
-                <label className="flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 hover:border-red-500 cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-50 dark:bg-[#09090B]">
-                  <Upload className="w-4 h-4 text-red-500" />
-                  <span className="truncate">
-                    {pictureFile ? pictureFile.name : 'Choose image file'}
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="sr-only"
-                    onChange={(e) =>
-                      handlePictureChange(e.target.files?.[0] ?? null)
-                    }
-                  />
-                </label>
+                <div className="flex items-center gap-2">
+                  <label className="flex-1 min-w-0 flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 hover:border-red-500 cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-50 dark:bg-[#09090B]">
+                    <Upload className="w-4 h-4 text-red-500 shrink-0" />
+                    <span className="truncate">
+                      {pictureFile
+                        ? pictureFile.name
+                        : picturePreview
+                        ? 'Replace image'
+                        : 'Choose image file'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(e) => {
+                        handlePictureChange(e.target.files?.[0] ?? null);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {picturePreview ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPictureFile(null);
+                        setPicturePreview('');
+                        setPictureUrl('');
+                      }}
+                      title="Delete part picture"
+                      className="px-3 py-2.5 rounded-lg border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10 text-xs font-semibold shrink-0"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>

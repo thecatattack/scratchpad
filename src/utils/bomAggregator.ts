@@ -7,6 +7,8 @@ import {
   Subassembly,
 } from '../types';
 
+import { toMillis } from './dateFormat';
+
 const PRIORITY_RANK: Record<PartPriority, number> = {
   'Low Priority': 1,
   'Regular Priority': 2,
@@ -125,6 +127,30 @@ export function buildFlattenedMainParts(
     ).join(', ');
     const vendorLink = group.find((p) => p.vendorLink)?.vendorLink ?? '';
 
+    const earliestCreated = group.reduce((earliest, p) => {
+      const eMs = toMillis(earliest.createdAt);
+      const pMs = toMillis(p.createdAt);
+      if (!eMs) return p;
+      if (pMs && pMs < eMs) return p;
+      return earliest;
+    }, primary);
+
+    const latestUpdated = group.reduce((latest, p) => {
+      const lMs = toMillis(latest.updatedAt);
+      const pMs = toMillis(p.updatedAt);
+      return pMs >= lMs ? p : latest;
+    }, primary);
+
+    const requestedGroup = group.filter(
+      (p) => Boolean(p.requestedAt) || Boolean(p.requestedByName) || Boolean(p.requestedBy)
+    );
+    const latestRequested =
+      requestedGroup.length > 0
+        ? requestedGroup.reduce((latest, p) =>
+            toMillis(p.requestedAt) >= toMillis(latest.requestedAt) ? p : latest
+          )
+        : null;
+
     aggregated.push({
       ...primary,
       revision,
@@ -142,6 +168,15 @@ export function buildFlattenedMainParts(
       machiningNotes,
       assignedMachinist,
       vendorLink,
+      createdBy: earliestCreated.createdBy,
+      createdByName: earliestCreated.createdByName,
+      createdAt: earliestCreated.createdAt,
+      updatedBy: latestUpdated.updatedBy,
+      updatedByName: latestUpdated.updatedByName,
+      updatedAt: latestUpdated.updatedAt,
+      requestedBy: latestRequested?.requestedBy || '',
+      requestedByName: latestRequested?.requestedByName || '',
+      requestedAt: latestRequested?.requestedAt ?? null,
       status: combineStatus(group.map((p) => p.status)),
       priority: combinePriority(group.map((p) => p.priority)),
       costsMoney: group.some((p) => p.costsMoney),

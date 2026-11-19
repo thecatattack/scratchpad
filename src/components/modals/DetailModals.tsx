@@ -6,6 +6,8 @@ import {
   Download,
   ExternalLink,
   FileText,
+  History,
+  Image as ImageIcon,
   Square,
   Trash2,
   Upload,
@@ -20,11 +22,17 @@ import {
 import { useApp } from '../../context/AppContext';
 import {
   deleteTeamFile,
+  deleteTeamFileByUrl,
   formatFileSize,
   uploadTeamFile,
   validateFileSize,
 } from '../../firebase';
+import {
+  formatActorDisplay,
+  formatTimestamp,
+} from '../../utils/dateFormat';
 import { Modal } from '../ui/Modal';
+import { SubassemblyLabels } from '../ui/SubassemblyLabels';
 
 export type ActiveDetailModal =
   | { type: 'machines'; part: AggregatedPart }
@@ -34,6 +42,7 @@ export type ActiveDetailModal =
   | { type: 'files'; part: AggregatedPart; canEdit: boolean }
   | { type: 'notes'; part: AggregatedPart; canEdit: boolean }
   | { type: 'drawing'; part: AggregatedPart; canEdit: boolean }
+  | { type: 'picture'; part: AggregatedPart; canEdit: boolean }
   | { type: 'request-in-house'; part: AggregatedPart }
   | { type: 'request-purchased'; part: AggregatedPart }
   | { type: 'request-outsourced'; part: AggregatedPart }
@@ -42,6 +51,7 @@ export type ActiveDetailModal =
   | { type: 'machine-action'; part: AggregatedPart }
   | { type: 'approved-action'; part: AggregatedPart }
   | { type: 'in-progress-details'; part: AggregatedPart }
+  | { type: 'history'; part: AggregatedPart }
   | null;
 
 interface DetailModalsProps {
@@ -636,6 +646,131 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
     );
   }
 
+  // 7b. Part Picture Pop-up (View / Replace / Delete)
+  if (modal.type === 'picture') {
+    const handleUploadPicture = async (file: File | null) => {
+      if (!file) return;
+      setBusy(true);
+      try {
+        validateFileSize(file);
+        const uploaded = await uploadTeamFile(
+          file,
+          `projects/${projectId}/subassemblies/${part.subassemblyId}/parts/${part.id}/pic_${Date.now()}_${file.name}`
+        );
+        if (part.pictureUrl) {
+          await deleteTeamFileByUrl(part.pictureUrl);
+        }
+        await updateAllContributingParts({
+          pictureUrl: uploaded.url.slice(0, 2000),
+        });
+        pushToast('success', 'Part picture updated.');
+        onClose();
+      } catch (err) {
+        pushToast(
+          'error',
+          err instanceof Error ? err.message : 'Picture upload failed.'
+        );
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    const handleDeletePicture = async () => {
+      if (!part.pictureUrl) return;
+      setBusy(true);
+      try {
+        await deleteTeamFileByUrl(part.pictureUrl);
+        await updateAllContributingParts({ pictureUrl: '' });
+        pushToast('success', 'Part picture deleted.');
+        onClose();
+      } catch (err) {
+        pushToast(
+          'error',
+          err instanceof Error ? err.message : 'Failed to delete picture.'
+        );
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    return (
+      <Modal
+        open
+        onClose={onClose}
+        title="Part Picture"
+        subtitle={`${partTag} · ${part.name}`}
+        maxWidth="lg"
+      >
+        <div className="space-y-4">
+          {part.pictureUrl ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] overflow-hidden flex items-center justify-center max-h-[60vh]">
+                <img
+                  src={part.pictureUrl}
+                  alt={part.name}
+                  referrerPolicy="no-referrer"
+                  className="max-h-[60vh] w-auto object-contain"
+                />
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <a
+                  href={part.pictureUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 text-xs font-semibold hover:border-zinc-400"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open Full Image</span>
+                </a>
+                {modal.canEdit ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleDeletePicture()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10 text-xs font-semibold"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{busy ? 'Deleting...' : 'Delete Picture'}</span>
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div className="py-8 text-center space-y-2">
+              <ImageIcon className="w-8 h-8 text-zinc-400 mx-auto" />
+              <p className="text-sm text-zinc-500">
+                No picture attached to this part yet.
+              </p>
+            </div>
+          )}
+
+          {modal.canEdit ? (
+            <label className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 hover:border-red-500 cursor-pointer text-xs font-semibold">
+              <Upload className="w-4 h-4 text-red-500" />
+              <span>
+                {busy
+                  ? 'Uploading...'
+                  : part.pictureUrl
+                  ? 'Replace Part Picture (max 10 MB)'
+                  : 'Upload Part Picture (max 10 MB)'}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                disabled={busy}
+                className="sr-only"
+                onChange={(e) => {
+                  void handleUploadPicture(e.target.files?.[0] ?? null);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          ) : null}
+        </div>
+      </Modal>
+    );
+  }
+
   // 8. Request In-House (Parts Manager -> Machining Manager)
   if (modal.type === 'request-in-house') {
     return (
@@ -1158,6 +1293,16 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         maxWidth="md"
       >
         <div className="space-y-4">
+          {part.requestedAt || part.requestedByName || part.requestedBy ? (
+            <div className="px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] text-xs text-zinc-600 dark:text-zinc-400">
+              Requested by{' '}
+              <span className="font-semibold text-zinc-900 dark:text-white">
+                {formatActorDisplay(part.requestedByName, part.requestedBy)}
+              </span>{' '}
+              on {formatTimestamp(part.requestedAt)}
+            </div>
+          ) : null}
+
           <div className="space-y-2">
             <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
               Machines Used So Far (Assigned Machines Only)
@@ -1329,6 +1474,16 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         maxWidth="md"
       >
         <div className="space-y-4">
+          {part.requestedAt || part.requestedByName || part.requestedBy ? (
+            <div className="px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] text-xs text-zinc-600 dark:text-zinc-400">
+              Requested by{' '}
+              <span className="font-semibold text-zinc-900 dark:text-white">
+                {formatActorDisplay(part.requestedByName, part.requestedBy)}
+              </span>{' '}
+              on {formatTimestamp(part.requestedAt)}
+            </div>
+          ) : null}
+
           {isInventorySparesOnly ? (
             <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-800 dark:text-amber-300">
               All {part.quantity} BOM units are already in inventory. Enter only
@@ -1589,6 +1744,158 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 : 'No completed machines or notes have been logged by the machinist yet.'}
             </div>
           </div>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
+  // 16. Part Activity & Audit History Pop-up
+  if (modal.type === 'history') {
+    const hasRequest = Boolean(
+      part.requestedAt || part.requestedByName || part.requestedBy
+    );
+
+    return (
+      <Modal
+        open
+        onClose={onClose}
+        title="Part Activity & Audit Log"
+        subtitle={`${partTag} · ${part.name}`}
+        maxWidth="md"
+      >
+        <div className="space-y-4 text-sm">
+          <div>
+            <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1">
+              Subassemblies
+            </div>
+            <SubassemblyLabels part={part} />
+          </div>
+
+          <div className="space-y-2.5">
+            <div className="p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B]">
+              <div className="flex items-center justify-between gap-2 text-xs text-zinc-500">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-700 dark:text-zinc-300">
+                  <History className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Created</span>
+                </span>
+                <span className="font-mono-tabular">
+                  {formatTimestamp(part.createdAt)}
+                </span>
+              </div>
+              <div className="font-semibold text-zinc-900 dark:text-white mt-1 text-xs">
+                {formatActorDisplay(part.createdByName, part.createdBy)}
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B]">
+              <div className="flex items-center justify-between gap-2 text-xs text-zinc-500">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-700 dark:text-zinc-300">
+                  <History className="w-3.5 h-3.5 text-sky-500" />
+                  <span>Last Changed</span>
+                </span>
+                <span className="font-mono-tabular">
+                  {formatTimestamp(part.updatedAt)}
+                </span>
+              </div>
+              <div className="font-semibold text-zinc-900 dark:text-white mt-1 text-xs">
+                {formatActorDisplay(
+                  part.updatedByName || part.createdByName,
+                  part.updatedBy || part.createdBy
+                )}
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B]">
+              <div className="flex items-center justify-between gap-2 text-xs text-zinc-500">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-700 dark:text-zinc-300">
+                  <History className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Requested</span>
+                </span>
+                <span className="font-mono-tabular">
+                  {hasRequest ? formatTimestamp(part.requestedAt) : '—'}
+                </span>
+              </div>
+              <div className="font-semibold text-zinc-900 dark:text-white mt-1 text-xs">
+                {hasRequest
+                  ? formatActorDisplay(part.requestedByName, part.requestedBy)
+                  : 'Not requested yet'}
+              </div>
+            </div>
+          </div>
+
+          {part.sourceParts.length > 1 ? (
+            <div className="space-y-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+              <div className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Per-Subassembly Records ({part.sourceParts.length})
+              </div>
+              <div className="space-y-2 max-h-56 overflow-y-auto">
+                {part.sourceParts.map((ref) => {
+                  const subHasReq = Boolean(
+                    ref.part.requestedAt ||
+                      ref.part.requestedByName ||
+                      ref.part.requestedBy
+                  );
+                  return (
+                    <div
+                      key={`${ref.subassemblyId}-${ref.part.id}`}
+                      className="p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317] text-xs space-y-1"
+                    >
+                      <div className="flex items-center justify-between gap-2 font-semibold text-zinc-900 dark:text-white">
+                        <span>
+                          {ref.assemblyNumber
+                            ? `${ref.assemblyNumber} · ${ref.subassemblyName}`
+                            : ref.subassemblyName}
+                        </span>
+                        <span className="font-mono-tabular text-zinc-500">
+                          Qty {ref.part.quantity}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        Created:{' '}
+                        <span className="text-zinc-700 dark:text-zinc-300">
+                          {formatActorDisplay(
+                            ref.part.createdByName,
+                            ref.part.createdBy
+                          )}
+                        </span>{' '}
+                        ({formatTimestamp(ref.part.createdAt)})
+                      </div>
+                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        Changed:{' '}
+                        <span className="text-zinc-700 dark:text-zinc-300">
+                          {formatActorDisplay(
+                            ref.part.updatedByName || ref.part.createdByName,
+                            ref.part.updatedBy || ref.part.createdBy
+                          )}
+                        </span>{' '}
+                        ({formatTimestamp(ref.part.updatedAt)})
+                      </div>
+                      {subHasReq ? (
+                        <div className="text-[11px] text-amber-700 dark:text-amber-400">
+                          Requested:{' '}
+                          {formatActorDisplay(
+                            ref.part.requestedByName,
+                            ref.part.requestedBy
+                          )}{' '}
+                          ({formatTimestamp(ref.part.requestedAt)})
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex justify-end">
             <button

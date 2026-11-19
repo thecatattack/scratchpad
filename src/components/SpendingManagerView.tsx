@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import {
   CheckCircle2,
   DollarSign,
+  History,
+  Image as ImageIcon,
   Layers,
   Lock,
   Search,
@@ -14,6 +16,7 @@ import {
   buildSubassemblyViewParts,
 } from '../utils/bomAggregator';
 import { PriorityLabel, StatusLabel } from './ui/StatusText';
+import { SubassemblyLabels } from './ui/SubassemblyLabels';
 import { ActiveDetailModal, DetailModals } from './modals/DetailModals';
 
 interface SpendingManagerViewProps {
@@ -84,7 +87,12 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
         p.partNumber.toLowerCase().includes(q) ||
         (p.type === 'Custom' && (p.revision || '').toLowerCase().includes(q)) ||
         p.vendor.toLowerCase().includes(q) ||
-        p.manufacturer.toLowerCase().includes(q)
+        p.manufacturer.toLowerCase().includes(q) ||
+        p.sourceParts.some(
+          (s) =>
+            s.subassemblyName.toLowerCase().includes(q) ||
+            s.assemblyNumber.toLowerCase().includes(q)
+        )
       );
     });
   }, [
@@ -186,7 +194,12 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
                   <h2 className="text-xl font-bold text-zinc-900 dark:text-white truncate group-hover:text-red-500 transition-colors">
                     {proj.name}
                   </h2>
-                  <p className="text-xs text-zinc-500">Open Purchase Queue →</p>
+                  {proj.description ? (
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-2 mt-0.5">
+                      {proj.description}
+                    </p>
+                  ) : null}
+                  <p className="text-xs text-zinc-500 mt-0.5">Open Purchase Queue →</p>
                 </div>
               </button>
             ))}
@@ -209,6 +222,11 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 dark:text-white mt-0.5">
           {selectedProject.name} — Purchase Requests
         </h1>
+        {selectedProject.description ? (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-2xl">
+            {selectedProject.description}
+          </p>
+        ) : null}
       </div>
 
       {/* Subassembly Tabs + Search */}
@@ -295,6 +313,9 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
                         {p.partNumber}
                         {p.type === 'Custom' && p.revision ? ` · Rev ${p.revision}` : ''}
                       </div>
+                      {selectedSubId === 'main' ? (
+                        <SubassemblyLabels part={p} compact />
+                      ) : null}
                     </div>
                     <StatusLabel
                       status={
@@ -348,17 +369,41 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
                 </div>
 
                 <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDetailModal({ type: 'notes', part: p, canEdit: false })
-                    }
-                    title="View Notes"
-                    className="min-h-[40px] px-3 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-red-500 text-xs font-medium text-zinc-600 dark:text-zinc-300"
-                  >
-                    <StickyNote className="w-4 h-4" />
-                    <span>Notes</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDetailModal({ type: 'notes', part: p, canEdit: false })
+                      }
+                      title="View Notes"
+                      className="min-h-[40px] px-3 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-red-500 text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                    >
+                      <StickyNote className="w-4 h-4" />
+                      <span>Notes</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDetailModal({ type: 'history', part: p })
+                      }
+                      title="View Activity & History"
+                      className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-red-500 text-zinc-500"
+                    >
+                      <History className="w-4 h-4" />
+                    </button>
+                    {p.pictureUrl ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDetailModal({ type: 'picture', part: p, canEdit: false })
+                        }
+                        title="View Part Picture"
+                        className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-red-500 text-red-500"
+                      >
+                        <ImageIcon className="w-4 h-4" />
+                      </button>
+                    ) : null}
+                  </div>
 
                   <button
                     type="button"

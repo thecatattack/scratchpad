@@ -93,6 +93,10 @@
           "minLength": 1,
           "maxLength": 100
         },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
         "coverImageUrl": {
           "type": "string",
           "maxLength": 2000
@@ -301,6 +305,31 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128
+        },
+        "createdByName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedByName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "requestedBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "requestedByName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "requestedAt": {
+          "type": "string",
+          "format": "date-time"
         },
         "createdAt": {
           "type": "string",

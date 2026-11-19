@@ -72,9 +72,10 @@ service cloud.firestore {
 
     function isValidProject(data) {
       return data.keys().hasAll(['teamCode', 'name', 'coverImageUrl', 'editorPassword', 'createdBy', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['teamCode', 'name', 'coverImageUrl', 'editorPassword', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['teamCode', 'name', 'description', 'coverImageUrl', 'editorPassword', 'createdBy', 'createdAt', 'updatedAt'])
         && data.teamCode == 'FRC451'
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && (!('description' in data) || (data.description is string && data.description.size() <= 500))
         && data.coverImageUrl is string && data.coverImageUrl.size() <= 2000
         && data.editorPassword is string && data.editorPassword.size() >= 1 && data.editorPassword.size() <= 64
         && data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128
@@ -135,7 +136,8 @@ service cloud.firestore {
           'drawingPdf', 'attachedFiles', 'identicalGroupId', 'notes', 'status',
           'priority', 'assignedMachinist', 'vendorLink', 'sparesRequested', 'sparesCount',
           'totalMachined', 'totalOrdered', 'machinesUsed', 'machiningNotes',
-          'createdBy', 'createdAt', 'updatedAt'
+          'createdBy', 'createdByName', 'updatedBy', 'updatedByName',
+          'requestedBy', 'requestedByName', 'requestedAt', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.projectId) && data.projectId == projectId
         && isValidId(data.subassemblyId) && data.subassemblyId == subassemblyId
@@ -173,6 +175,12 @@ service cloud.firestore {
         && (data.machinesUsed.size() == 0 || (data.machinesUsed[0] is string && data.machinesUsed[0].size() <= 60))
         && (!('machiningNotes' in data) || (data.machiningNotes is string && data.machiningNotes.size() <= 1000))
         && data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128
+        && (!('createdByName' in data) || (data.createdByName is string && data.createdByName.size() <= 120))
+        && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128))
+        && (!('updatedByName' in data) || (data.updatedByName is string && data.updatedByName.size() <= 120))
+        && (!('requestedBy' in data) || (data.requestedBy is string && data.requestedBy.size() <= 128))
+        && (!('requestedByName' in data) || (data.requestedByName is string && data.requestedByName.size() <= 120))
+        && (!('requestedAt' in data) || data.requestedAt == null || data.requestedAt is timestamp)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -244,7 +252,7 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && (
           isAdmin()
-          || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'coverImageUrl', 'editorPassword', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'coverImageUrl', 'editorPassword', 'updatedAt'])
         );
       allow delete: if isVerifiedUser() && isValidId(projectId);
 
@@ -283,16 +291,25 @@ service cloud.firestore {
             && isValidId(partId)
             && isValidPart(incoming(), projectId, subassemblyId)
             && incoming().createdBy == request.auth.uid
+            && incoming().updatedBy == request.auth.uid
             && incoming().createdAt == request.time
             && incoming().updatedAt == request.time
+            && (!('requestedAt' in incoming()) || incoming().requestedAt == null || (incoming().requestedAt == request.time && incoming().requestedBy == request.auth.uid))
             && exists(/databases/$(database)/documents/projects/$(projectId)/subassemblies/$(subassemblyId));
           allow update: if isVerifiedUser()
             && isValidId(projectId)
             && isValidId(subassemblyId)
             && isValidPart(incoming(), projectId, subassemblyId)
             && incoming().createdBy == existing().createdBy
+            && (isAdmin() || !('createdByName' in incoming().diff(existing()).affectedKeys()))
             && incoming().createdAt == existing().createdAt
+            && incoming().updatedBy == request.auth.uid
             && incoming().updatedAt == request.time
+            && (
+              !('requestedAt' in incoming().diff(existing()).affectedKeys())
+              || incoming().requestedAt == null
+              || (incoming().requestedAt == request.time && incoming().requestedBy == request.auth.uid)
+            )
             && (
               isAdmin()
               // Action 1: Full Parts Manager property re-edit (resets workflow fields)
@@ -302,28 +319,32 @@ service cloud.firestore {
                 'dimensions', 'pictureUrl', 'drawingPdf', 'attachedFiles', 'identicalGroupId',
                 'notes', 'status', 'priority', 'assignedMachinist', 'vendorLink',
                 'sparesRequested', 'sparesCount', 'totalMachined', 'totalOrdered', 'machinesUsed',
-                'machiningNotes', 'updatedAt'
+                'machiningNotes', 'requestedBy', 'requestedByName', 'requestedAt',
+                'updatedBy', 'updatedByName', 'updatedAt'
               ])
-              // Action 2: Notes / Files / Drawing PDF quick updates
-              || incoming().diff(existing()).affectedKeys().hasOnly(['notes', 'updatedAt'])
-              || incoming().diff(existing()).affectedKeys().hasOnly(['drawingPdf', 'updatedAt'])
-              || incoming().diff(existing()).affectedKeys().hasOnly(['attachedFiles', 'updatedAt'])
+              // Action 2: Notes / Files / Drawing PDF / Picture quick updates
+              || incoming().diff(existing()).affectedKeys().hasOnly(['notes', 'updatedBy', 'updatedByName', 'updatedAt'])
+              || incoming().diff(existing()).affectedKeys().hasOnly(['drawingPdf', 'updatedBy', 'updatedByName', 'updatedAt'])
+              || incoming().diff(existing()).affectedKeys().hasOnly(['attachedFiles', 'updatedBy', 'updatedByName', 'updatedAt'])
+              || incoming().diff(existing()).affectedKeys().hasOnly(['pictureUrl', 'updatedBy', 'updatedByName', 'updatedAt'])
               // Action 3: Parts Manager Request / Status / Spares actions
               || incoming().diff(existing()).affectedKeys().hasOnly([
-                'status', 'priority', 'assignedMachinist', 'sparesRequested', 'notes', 'vendorLink', 'updatedAt'
+                'status', 'priority', 'assignedMachinist', 'sparesRequested', 'notes', 'vendorLink',
+                'requestedBy', 'requestedByName', 'requestedAt', 'updatedBy', 'updatedByName', 'updatedAt'
               ])
-              || incoming().diff(existing()).affectedKeys().hasOnly(['sparesCount', 'updatedAt'])
+              || incoming().diff(existing()).affectedKeys().hasOnly(['sparesCount', 'updatedBy', 'updatedByName', 'updatedAt'])
               // Action 4: Machining Manager update
               || incoming().diff(existing()).affectedKeys().hasOnly([
-                'machinesUsed', 'status', 'totalMachined', 'sparesCount', 'machiningNotes', 'updatedAt'
+                'machinesUsed', 'status', 'totalMachined', 'sparesCount', 'machiningNotes',
+                'updatedBy', 'updatedByName', 'updatedAt'
               ])
               // Action 5: Spending Manager update
               || incoming().diff(existing()).affectedKeys().hasOnly([
-                'status', 'totalOrdered', 'sparesCount', 'updatedAt'
+                'status', 'totalOrdered', 'sparesCount', 'updatedBy', 'updatedByName', 'updatedAt'
               ])
               // Action 6: Identical part group linking from Part Wizard
               || incoming().diff(existing()).affectedKeys().hasOnly([
-                'identicalGroupId', 'updatedAt'
+                'identicalGroupId', 'updatedBy', 'updatedByName', 'updatedAt'
               ])
             );
           allow delete: if isVerifiedUser() && isValidId(projectId) && isValidId(subassemblyId) && isValidId(partId);

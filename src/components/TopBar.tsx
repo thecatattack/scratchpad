@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowLeftRight,
   LogOut,
   Moon,
   Sun,
+  User as UserIcon,
   X,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
@@ -27,6 +28,17 @@ const MODE_LABELS: Record<AppMode, string> = {
 
 export const TopBar: React.FC<TopBarProps> = ({ currentMode, onNavigate }) => {
   const { darkMode, toggleDarkMode, teamUnlocked, user, signOutUser } = useApp();
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [user?.photoURL]);
+
+  const userName = user?.displayName?.trim() || user?.email?.trim() || 'Team Member';
+  const userTitle =
+    user?.displayName && user?.email
+      ? `${user.displayName} (${user.email})`
+      : userName;
 
   return (
     <header className="sticky top-0 z-40 border-b border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-[#09090B]/95 backdrop-blur-sm">
@@ -79,7 +91,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentMode, onNavigate }) => {
           </div>
         )}
 
-        {/* Zone 3: Theme Toggle + Switch Modes / Sign Out */}
+        {/* Zone 3: Theme Toggle + Switch Modes + Account Info + Sign Out */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <button
             type="button"
@@ -103,16 +115,44 @@ export const TopBar: React.FC<TopBarProps> = ({ currentMode, onNavigate }) => {
           ) : null}
 
           {user ? (
-            <button
-              type="button"
-              onClick={() => void signOutUser()}
-              aria-label="Sign out"
-              title={`Signed in as ${user.email || 'Team Member'}`}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all active:scale-[0.98] whitespace-nowrap shrink-0"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Sign Out</span>
-            </button>
+            <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-zinc-200 dark:border-zinc-800">
+              <div
+                title={userTitle}
+                className="flex items-center gap-2 px-2 py-1 rounded-lg bg-zinc-100/80 dark:bg-[#131317] border border-zinc-200 dark:border-zinc-800 min-w-0"
+              >
+                {user.photoURL && !avatarFailed ? (
+                  <img
+                    src={user.photoURL}
+                    alt={userName}
+                    referrerPolicy="no-referrer"
+                    onError={() => setAvatarFailed(true)}
+                    className="w-6 h-6 rounded-full object-cover shrink-0 border border-zinc-300 dark:border-zinc-700"
+                  />
+                ) : (
+                  <span className="w-6 h-6 rounded-full bg-red-600/15 text-red-600 dark:text-red-400 border border-red-500/30 flex items-center justify-center text-[11px] font-bold shrink-0">
+                    {user.displayName ? (
+                      user.displayName.trim().charAt(0).toUpperCase()
+                    ) : (
+                      <UserIcon className="w-3.5 h-3.5" />
+                    )}
+                  </span>
+                )}
+                <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100 truncate max-w-[110px] sm:max-w-[160px]">
+                  {userName}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void signOutUser()}
+                aria-label="Sign out"
+                title={`Sign out (${userTitle})`}
+                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all active:scale-[0.98] whitespace-nowrap shrink-0"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Sign Out</span>
+              </button>
+            </div>
           ) : null}
         </div>
       </div>

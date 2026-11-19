@@ -122,6 +122,7 @@ export interface Project {
   id: string;
   teamCode: 'FRC451';
   name: string;
+  description?: string;
   coverImageUrl: string;
   editorPassword: string;
   createdBy: string;
@@ -175,6 +176,12 @@ export interface Part {
   machinesUsed: string[];
   machiningNotes?: string;
   createdBy: string;
+  createdByName?: string;
+  updatedBy?: string;
+  updatedByName?: string;
+  requestedBy?: string;
+  requestedByName?: string;
+  requestedAt?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
 }

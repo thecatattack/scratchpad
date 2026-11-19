@@ -1,7 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  CheckSquare,
   FileText,
   FolderOpen,
+  History,
+  Image as ImageIcon,
   Kanban,
   Layers,
   Lock,
@@ -26,6 +29,7 @@ import {
   PartStatus,
   Project,
   ProjectTab,
+  Subassembly,
 } from '../types';
 import {
   buildFlattenedMainParts,
@@ -33,7 +37,10 @@ import {
 } from '../utils/bomAggregator';
 import { validateFileSize } from '../firebase';
 import { Modal } from './ui/Modal';
+import { StatusProgressBar } from './ui/StatusProgressBar';
 import { PriorityLabel, StatusLabel } from './ui/StatusText';
+import { SubassemblyLabels } from './ui/SubassemblyLabels';
+import { BulkEditModal } from './modals/BulkEditModal';
 import { ActiveDetailModal, DetailModals } from './modals/DetailModals';
 import { PartWizardModal } from './modals/PartWizardModal';
 
@@ -54,7 +61,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
     unlockedProjectIds,
     unlockProjectEditor,
     createProject,
+    updateProject,
     createSubassembly,
+    updateSubassembly,
     deleteSubassembly,
     deletePart,
     updatePart,
@@ -69,15 +78,32 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   // Create Project modal
   const [createProjOpen, setCreateProjOpen] = useState(false);
   const [newProjName, setNewProjName] = useState('');
+  const [newProjDesc, setNewProjDesc] = useState('');
   const [newProjPassword, setNewProjPassword] = useState('');
   const [newProjCover, setNewProjCover] = useState<File | null>(null);
   const [creatingProj, setCreatingProj] = useState(false);
+
+  // Edit Project modal
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editProjName, setEditProjName] = useState('');
+  const [editProjDesc, setEditProjDesc] = useState('');
+  const [editProjPassword, setEditProjPassword] = useState('');
+  const [editProjCoverFile, setEditProjCoverFile] = useState<File | null>(null);
+  const [editProjCoverPreview, setEditProjCoverPreview] = useState('');
+  const [editProjRemoveCover, setEditProjRemoveCover] = useState(false);
+  const [savingProjEdit, setSavingProjEdit] = useState(false);
 
   // Create Subassembly modal
   const [createSubOpen, setCreateSubOpen] = useState(false);
   const [newSubName, setNewSubName] = useState('');
   const [newSubNumber, setNewSubNumber] = useState('');
   const [creatingSub, setCreatingSub] = useState(false);
+
+  // Edit Subassembly modal
+  const [editingSub, setEditingSub] = useState<Subassembly | null>(null);
+  const [editSubName, setEditSubName] = useState('');
+  const [editSubNumber, setEditSubNumber] = useState('');
+  const [savingSubEdit, setSavingSubEdit] = useState(false);
 
   // Active workspace selection
   const [selectedSubId, setSelectedSubId] = useState<'main' | string>('main');
@@ -98,6 +124,13 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const [detailModal, setDetailModal] = useState<ActiveDetailModal>(null);
   const [confirmDeletePart, setConfirmDeletePart] =
     useState<AggregatedPart | null>(null);
+
+  // Multi-select & Bulk Edit state
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [confirmBulkDeleteOpen, setConfirmBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === selectedProjectId) ?? null,
@@ -141,7 +174,15 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       (p.type === 'Custom' && (p.revision || '').toLowerCase().includes(q)) ||
       p.materialName.toLowerCase().includes(q) ||
       p.vendor.toLowerCase().includes(q) ||
-      p.manufacturer.toLowerCase().includes(q)
+      p.manufacturer.toLowerCase().includes(q) ||
+      (p.createdByName || p.createdBy || '').toLowerCase().includes(q) ||
+      (p.updatedByName || p.updatedBy || '').toLowerCase().includes(q) ||
+      (p.requestedByName || p.requestedBy || '').toLowerCase().includes(q) ||
+      p.sourceParts.some(
+        (ref) =>
+          ref.subassemblyName.toLowerCase().includes(q) ||
+          ref.assemblyNumber.toLowerCase().includes(q)
+      )
     );
   };
 
@@ -203,6 +244,89 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
     [displayParts, searchQuery, typeFilter, sourceFilter, statusFilter]
   );
 
+  const statusStatsParts = useMemo(() => {
+    if (activeTab === 'bom') {
+      return displayParts.filter((p) => {
+        if (!matchesSearch(p)) return false;
+        if (typeFilter !== 'ALL' && p.type !== typeFilter) return false;
+        if (sourceFilter !== 'ALL' && p.source !== sourceFilter) return false;
+        return true;
+      });
+    }
+    if (activeTab === 'in-house') {
+      return displayParts.filter(
+        (p) => p.source === 'In-House' && matchesSearch(p)
+      );
+    }
+    if (activeTab === 'purchased') {
+      return displayParts.filter(
+        (p) => p.type === 'COTS' && matchesSearch(p)
+      );
+    }
+    if (activeTab === 'outsourced') {
+      return displayParts.filter(
+        (p) => p.source === 'Outsourced' && matchesSearch(p)
+      );
+    }
+    return displayParts.filter((p) => {
+      if (p.sparesCount <= 0) return false;
+      if (!matchesSearch(p)) return false;
+      if (typeFilter !== 'ALL' && p.type !== typeFilter) return false;
+      if (sourceFilter !== 'ALL' && p.source !== sourceFilter) return false;
+      return true;
+    });
+  }, [activeTab, displayParts, searchQuery, typeFilter, sourceFilter]);
+
+  const currentTabParts = useMemo(() => {
+    if (activeTab === 'bom') return bomParts;
+    if (activeTab === 'in-house') return inHouseParts;
+    if (activeTab === 'purchased') return purchasedParts;
+    if (activeTab === 'outsourced') return outsourcedParts;
+    return spareParts;
+  }, [activeTab, bomParts, inHouseParts, purchasedParts, outsourcedParts, spareParts]);
+
+  const selectedParts = useMemo(
+    () => currentTabParts.filter((p) => selectedPartIds.includes(p.id)),
+    [currentTabParts, selectedPartIds]
+  );
+
+  const allVisibleSelected =
+    currentTabParts.length > 0 &&
+    currentTabParts.every((p) => selectedPartIds.includes(p.id));
+
+  const togglePartSelected = (id: string) => {
+    setSelectedPartIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setSelectedPartIds([]);
+    } else {
+      setSelectedPartIds(currentTabParts.map((p) => p.id));
+    }
+  };
+
+  useEffect(() => {
+    setSelectedPartIds([]);
+  }, [selectedSubId, activeTab, selectedProjectId]);
+
+  useEffect(() => {
+    if (!editable) {
+      setBulkSelectMode(false);
+      setSelectedPartIds([]);
+    }
+  }, [editable]);
+
+  useEffect(() => {
+    return () => {
+      if (editProjCoverPreview && editProjCoverPreview.startsWith('blob:')) {
+        URL.revokeObjectURL(editProjCoverPreview);
+      }
+    };
+  }, [editProjCoverPreview]);
+
   const handleOpenProject = (proj: Project) => {
     setSelectedSubId('main');
     setActiveTab('bom');
@@ -223,11 +347,13 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
     try {
       const id = await createProject({
         name: newProjName,
+        description: newProjDesc,
         editorPassword: newProjPassword,
         coverImageFile: newProjCover,
       });
       setCreateProjOpen(false);
       setNewProjName('');
+      setNewProjDesc('');
       setNewProjPassword('');
       setNewProjCover(null);
       setSelectedSubId('main');
@@ -239,6 +365,39 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       );
     } finally {
       setCreatingProj(false);
+    }
+  };
+
+  const openEditProjectModal = (proj: Project) => {
+    setEditingProject(proj);
+    setEditProjName(proj.name);
+    setEditProjDesc(proj.description || '');
+    setEditProjPassword(proj.editorPassword);
+    setEditProjCoverFile(null);
+    setEditProjCoverPreview(proj.coverImageUrl || '');
+    setEditProjRemoveCover(false);
+  };
+
+  const handleUpdateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProject || !editProjName.trim() || !editProjPassword.trim()) return;
+    setSavingProjEdit(true);
+    try {
+      await updateProject(editingProject.id, {
+        name: editProjName,
+        description: editProjDesc,
+        editorPassword: editProjPassword,
+        coverImageFile: editProjCoverFile,
+        removeCoverImage: editProjRemoveCover,
+      });
+      setEditingProject(null);
+    } catch (err) {
+      pushToast(
+        'error',
+        err instanceof Error ? err.message : 'Failed to update project.'
+      );
+    } finally {
+      setSavingProjEdit(false);
     }
   };
 
@@ -265,6 +424,171 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       setCreatingSub(false);
     }
   };
+
+  const openEditSubassemblyModal = (sub: Subassembly) => {
+    setEditingSub(sub);
+    setEditSubName(sub.name);
+    setEditSubNumber(sub.assemblyNumber);
+  };
+
+  const handleUpdateSubassembly = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (
+      !selectedProject ||
+      !editingSub ||
+      !editSubName.trim() ||
+      !editSubNumber.trim()
+    ) {
+      return;
+    }
+    setSavingSubEdit(true);
+    try {
+      await updateSubassembly(selectedProject.id, editingSub.id, {
+        name: editSubName,
+        assemblyNumber: editSubNumber,
+      });
+      setEditingSub(null);
+    } catch (err) {
+      pushToast(
+        'error',
+        err instanceof Error ? err.message : 'Failed to update subassembly.'
+      );
+    } finally {
+      setSavingSubEdit(false);
+    }
+  };
+
+  const editProjectModal = (
+    <Modal
+      open={editingProject !== null}
+      onClose={() => setEditingProject(null)}
+      title="Edit Project"
+      subtitle={editingProject ? `Update settings for ${editingProject.name}` : ''}
+      maxWidth="md"
+    >
+      <form onSubmit={handleUpdateProject} className="space-y-4">
+        <div className="space-y-1.5">
+          <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+            Project Name
+          </label>
+          <input
+            type="text"
+            required
+            maxLength={100}
+            value={editProjName}
+            onChange={(e) => setEditProjName(e.target.value)}
+            placeholder="e.g., 2026 Competition Robot"
+            className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+            Description (Optional)
+          </label>
+          <textarea
+            rows={3}
+            maxLength={500}
+            value={editProjDesc}
+            onChange={(e) => setEditProjDesc(e.target.value)}
+            placeholder="Describe this robot or mechanism project..."
+            className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+            Editor Password
+          </label>
+          <input
+            type="text"
+            required
+            maxLength={64}
+            value={editProjPassword}
+            onChange={(e) => setEditProjPassword(e.target.value)}
+            placeholder="Shared with CAD leads to edit this Project"
+            className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+            Cover Picture (max 10 MB)
+          </label>
+          {editProjCoverPreview ? (
+            <div className="relative h-32 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-zinc-100 dark:bg-[#09090B]">
+              <img
+                src={editProjCoverPreview}
+                alt={editProjName || 'Project cover'}
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setEditProjCoverFile(null);
+                  setEditProjCoverPreview('');
+                  setEditProjRemoveCover(true);
+                }}
+                className="absolute top-2 right-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900/85 hover:bg-red-600 text-white text-xs font-semibold shadow"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Remove Cover</span>
+              </button>
+            </div>
+          ) : null}
+          <label className="flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 hover:border-red-500 cursor-pointer text-xs font-medium">
+            <Upload className="w-4 h-4 text-red-500" />
+            <span className="truncate">
+              {editProjCoverFile
+                ? editProjCoverFile.name
+                : editProjCoverPreview
+                ? 'Replace cover image'
+                : 'Choose cover image'}
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                e.target.value = '';
+                if (!f) return;
+                try {
+                  validateFileSize(f);
+                  setEditProjCoverFile(f);
+                  setEditProjCoverPreview(URL.createObjectURL(f));
+                  setEditProjRemoveCover(false);
+                } catch (err) {
+                  pushToast(
+                    'error',
+                    err instanceof Error ? err.message : 'File too large.'
+                  );
+                }
+              }}
+            />
+          </label>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => setEditingProject(null)}
+            className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={savingProjEdit}
+            className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+          >
+            {savingProjEdit ? 'Saving...' : 'Save Project'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
 
   // ---------------------------------------------------------------------------
   // VIEW A: PROJECT SELECTION SCREEN
@@ -327,11 +651,18 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {projects.map((proj) => (
-              <button
+              <div
                 key={proj.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => handleOpenProject(proj)}
-                className="group text-left rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317] hover:border-red-500/70 overflow-hidden transition-all active:scale-[0.985]"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleOpenProject(proj);
+                  }
+                }}
+                className="group text-left rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317] hover:border-red-500/70 overflow-hidden transition-all active:scale-[0.985] cursor-pointer flex flex-col"
               >
                 <div className="h-36 bg-zinc-100 dark:bg-[#09090B] border-b border-zinc-200 dark:border-zinc-800 overflow-hidden flex items-center justify-center">
                   {proj.coverImageUrl ? (
@@ -348,20 +679,43 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                     </div>
                   )}
                 </div>
-                <div className="p-4 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
+                <div className="p-4 flex items-start justify-between gap-3 flex-1">
+                  <div className="min-w-0 space-y-1">
                     <h2 className="text-lg font-bold text-zinc-900 dark:text-white truncate group-hover:text-red-500 transition-colors">
                       {proj.name}
                     </h2>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {editable ? 'Editor access required' : 'Read-only BOM view'}
+                    {proj.description ? (
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-2">
+                        {proj.description}
+                      </p>
+                    ) : null}
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {editable
+                        ? unlockedProjectIds[proj.id]
+                          ? 'Unlocked for editing'
+                          : 'Editor access required'
+                        : 'Read-only BOM view'}
                     </p>
                   </div>
-                  {editable && !unlockedProjectIds[proj.id] ? (
-                    <Lock className="w-4 h-4 text-zinc-400 shrink-0" />
-                  ) : null}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {editable && unlockedProjectIds[proj.id] ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditProjectModal(proj);
+                        }}
+                        title="Edit Project"
+                        className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-red-500 hover:border-red-500/60"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    ) : editable && !unlockedProjectIds[proj.id] ? (
+                      <Lock className="w-4 h-4 text-zinc-400 shrink-0" />
+                    ) : null}
+                  </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -440,9 +794,24 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
               <input
                 type="text"
                 required
+                maxLength={100}
                 value={newProjName}
                 onChange={(e) => setNewProjName(e.target.value)}
                 placeholder="e.g., 2026 Competition Robot"
+                className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Description (Optional)
+              </label>
+              <textarea
+                rows={3}
+                maxLength={500}
+                value={newProjDesc}
+                onChange={(e) => setNewProjDesc(e.target.value)}
+                placeholder="Describe this robot or mechanism project..."
                 className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
               />
             </div>
@@ -454,6 +823,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
               <input
                 type="text"
                 required
+                maxLength={64}
                 value={newProjPassword}
                 onChange={(e) => setNewProjPassword(e.target.value)}
                 placeholder="Shared with CAD leads to edit this Project"
@@ -509,6 +879,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
             </div>
           </form>
         </Modal>
+        {editProjectModal}
       </div>
     );
   }
@@ -544,17 +915,35 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                 colItems.map((p) => (
                   <div
                     key={p.id}
-                    className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317] p-3 space-y-2"
+                    className={`rounded-lg border p-3 space-y-2 ${
+                      editable && bulkSelectMode && selectedPartIds.includes(p.id)
+                        ? 'border-red-500 bg-red-500/5 dark:bg-red-500/10'
+                        : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317]'
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold truncate">
-                          {p.name}
-                        </div>
-                        <div className="text-xs font-mono-tabular text-zinc-500">
-                          {p.partNumber}
-                          {p.type === 'Custom' && p.revision ? ` · Rev ${p.revision}` : ''}{' '}
-                          · Qty {p.quantity}
+                      <div className="flex items-start gap-2 min-w-0">
+                        {editable && bulkSelectMode ? (
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${p.name}`}
+                            checked={selectedPartIds.includes(p.id)}
+                            onChange={() => togglePartSelected(p.id)}
+                            className="mt-0.5 rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer shrink-0"
+                          />
+                        ) : null}
+                        <div className="min-w-0 space-y-1">
+                          <div className="text-sm font-semibold truncate">
+                            {p.name}
+                          </div>
+                          <div className="text-xs font-mono-tabular text-zinc-500">
+                            {p.partNumber}
+                            {p.type === 'Custom' && p.revision ? ` · Rev ${p.revision}` : ''}{' '}
+                            · Qty {p.quantity}
+                          </div>
+                          {selectedSubId === 'main' ? (
+                            <SubassemblyLabels part={p} compact />
+                          ) : null}
                         </div>
                       </div>
                       {p.type === 'Custom' &&
@@ -595,6 +984,19 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                           type="button"
                           onClick={() =>
                             setDetailModal({
+                              type: 'history',
+                              part: p,
+                            })
+                          }
+                          title="Part Activity & Audit Log"
+                          className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
+                        >
+                          <History className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDetailModal({
                               type: 'notes',
                               part: p,
                               canEdit: editable,
@@ -605,6 +1007,26 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         >
                           <StickyNote className="w-3.5 h-3.5" />
                         </button>
+                        {editable || p.pictureUrl ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDetailModal({
+                                type: 'picture',
+                                part: p,
+                                canEdit: editable,
+                              })
+                            }
+                            title={p.pictureUrl ? 'View / Manage Part Picture' : 'Attach Part Picture'}
+                            className={`p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+                              p.pictureUrl
+                                ? 'text-red-500'
+                                : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                            }`}
+                          >
+                            <ImageIcon className="w-3.5 h-3.5" />
+                          </button>
+                        ) : null}
                         {p.type === 'Custom' ? (
                           <>
                             <button
@@ -712,6 +1134,17 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
     }
     return <StatusLabel status={p.status} />;
   };
+
+  const renderActivityButton = (p: AggregatedPart) => (
+    <button
+      type="button"
+      onClick={() => setDetailModal({ type: 'history', part: p })}
+      title="View Part Activity & Audit Log"
+      className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
+    >
+      <History className="w-4 h-4" />
+    </button>
+  );
 
   const handlePriorityChange = async (
     p: AggregatedPart,
@@ -884,13 +1317,34 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
             >
               ← All Projects
             </button>
-            <span className="text-[11px] font-medium text-zinc-500">
-              {editable ? 'Editor' : 'Viewer'}
-            </span>
+            <div className="flex items-center gap-2">
+              {editable ? (
+                <button
+                  type="button"
+                  onClick={() => openEditProjectModal(selectedProject)}
+                  title="Edit Project (name, description, password, picture)"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded border border-zinc-200 dark:border-zinc-700 hover:border-red-500 text-[11px] font-semibold text-zinc-600 dark:text-zinc-300 hover:text-red-500"
+                >
+                  <Pencil className="w-3 h-3" />
+                  <span>Edit Project</span>
+                </button>
+              ) : (
+                <span className="text-[11px] font-medium text-zinc-500">
+                  Viewer
+                </span>
+              )}
+            </div>
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white leading-tight">
-            {selectedProject.name}
-          </h1>
+          <div className="space-y-1">
+            <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white leading-tight">
+              {selectedProject.name}
+            </h1>
+            {selectedProject.description ? (
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                {selectedProject.description}
+              </p>
+            ) : null}
+          </div>
 
           <div className="space-y-1 pt-2 border-t border-zinc-200 dark:border-zinc-800">
             <button
@@ -944,17 +1398,27 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                     </span>
                   </button>
                   {editable ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (selectedSubId === sub.id) setSelectedSubId('main');
-                        void deleteSubassembly(selectedProject.id, sub.id);
-                      }}
-                      title="Delete subassembly"
-                      className="p-1.5 rounded text-zinc-400 hover:text-red-500"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => openEditSubassemblyModal(sub)}
+                        title="Edit subassembly"
+                        className="p-1.5 rounded text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedSubId === sub.id) setSelectedSubId('main');
+                          void deleteSubassembly(selectedProject.id, sub.id);
+                        }}
+                        title="Delete subassembly"
+                        className="p-1.5 rounded text-zinc-400 hover:text-red-500"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
                   ) : null}
                 </div>
               );
@@ -1064,6 +1528,27 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
               />
             </div>
 
+            {editable ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setBulkSelectMode((prev) => {
+                    const next = !prev;
+                    if (!next) setSelectedPartIds([]);
+                    return next;
+                  });
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${
+                  bulkSelectMode
+                    ? 'border-red-600 bg-red-600 text-white'
+                    : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317] text-zinc-700 dark:text-zinc-200 hover:border-red-500'
+                }`}
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                <span>{bulkSelectMode ? 'Done Selecting' : 'Select Multiple'}</span>
+              </button>
+            ) : null}
+
             {activeTab === 'bom' || activeTab === 'spares' ? (
               <>
                 <select
@@ -1153,6 +1638,76 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
           ) : null}
         </div>
 
+        {/* Multi-Select Action Bar */}
+        {editable && bulkSelectMode ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl border border-red-500/40 bg-red-500/5 dark:bg-red-500/10 text-xs">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="font-semibold text-zinc-900 dark:text-white font-mono-tabular">
+                {selectedParts.length} of {currentTabParts.length} selected
+              </span>
+              <button
+                type="button"
+                disabled={currentTabParts.length === 0}
+                onClick={toggleSelectAllVisible}
+                className="px-2.5 py-1 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#131317] font-semibold hover:border-red-500 disabled:opacity-40"
+              >
+                {allVisibleSelected ? 'Deselect All' : 'Select All Visible'}
+              </button>
+              {selectedParts.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedPartIds([])}
+                  className="text-zinc-500 hover:text-zinc-900 dark:hover:text-white font-medium"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={selectedParts.length === 0}
+                onClick={() => setBulkEditOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white font-semibold"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Edit Selected ({selectedParts.length})</span>
+              </button>
+              <button
+                type="button"
+                disabled={selectedParts.length === 0}
+                onClick={() => setConfirmBulkDeleteOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/15 disabled:opacity-40 font-semibold"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete ({selectedParts.length})</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* BOM Table Status Progress Bar */}
+        {!projectDataLoading &&
+        (activeTab === 'bom' || activeTab === 'spares' || viewMode === 'table') ? (
+          <StatusProgressBar
+            parts={statusStatsParts}
+            activeStatusFilter={statusFilter}
+            onSelectStatusFilter={setStatusFilter}
+            title={
+              activeTab === 'bom'
+                ? 'BOM Status Progress'
+                : activeTab === 'in-house'
+                ? 'In-House Parts Status Progress'
+                : activeTab === 'purchased'
+                ? 'Purchased Parts Status Progress'
+                : activeTab === 'outsourced'
+                ? 'Outsourced Parts Status Progress'
+                : 'Spare Parts Status Progress'
+            }
+          />
+        ) : null}
+
         {/* Loading State */}
         {projectDataLoading ? (
           <div className="space-y-2">
@@ -1183,7 +1738,21 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400">
+                    {editable && bulkSelectMode ? (
+                      <th className="py-3 pl-4 pr-2 w-9">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all visible parts"
+                          checked={allVisibleSelected}
+                          onChange={toggleSelectAllVisible}
+                          className="rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer"
+                        />
+                      </th>
+                    ) : null}
                     <th className="py-3 px-4 font-semibold">Part Name</th>
+                    {selectedSubId === 'main' ? (
+                      <th className="py-3 px-3 font-semibold">Subassembly</th>
+                    ) : null}
                     <th className="py-3 px-3 font-semibold">Part Number</th>
                     <th className="py-3 px-3 font-semibold">Rev</th>
                     <th className="py-3 px-3 font-semibold text-right">Qty</th>
@@ -1200,11 +1769,31 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                   {bomParts.map((p) => (
                     <tr
                       key={p.id}
-                      className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors"
+                      className={`hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors ${
+                        editable && bulkSelectMode && selectedPartIds.includes(p.id)
+                          ? 'bg-red-500/5 dark:bg-red-500/10'
+                          : ''
+                      }`}
                     >
+                      {editable && bulkSelectMode ? (
+                        <td className="py-2.5 pl-4 pr-2">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${p.name}`}
+                            checked={selectedPartIds.includes(p.id)}
+                            onChange={() => togglePartSelected(p.id)}
+                            className="rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer"
+                          />
+                        </td>
+                      ) : null}
                       <td className="py-2.5 px-4 font-semibold text-zinc-900 dark:text-white">
                         {p.name}
                       </td>
+                      {selectedSubId === 'main' ? (
+                        <td className="py-2.5 px-3">
+                          <SubassemblyLabels part={p} inTable />
+                        </td>
+                      ) : null}
                       <td className="py-2.5 px-3 font-mono-tabular text-zinc-600 dark:text-zinc-300">
                         {p.partNumber}
                       </td>
@@ -1243,6 +1832,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       </td>
                       <td className="py-2.5 px-4">
                         <div className="flex items-center justify-end gap-1">
+                          {renderActivityButton(p)}
                           <button
                             type="button"
                             onClick={() =>
@@ -1257,6 +1847,30 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                           >
                             <StickyNote className="w-4 h-4" />
                           </button>
+                          {editable || p.pictureUrl ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDetailModal({
+                                  type: 'picture',
+                                  part: p,
+                                  canEdit: editable,
+                                })
+                              }
+                              title={
+                                p.pictureUrl
+                                  ? 'View / Delete Part Picture'
+                                  : 'Attach Part Picture'
+                              }
+                              className={`p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 ${
+                                p.pictureUrl
+                                  ? 'text-red-500'
+                                  : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                              }`}
+                            >
+                              <ImageIcon className="w-4 h-4" />
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             onClick={() =>
@@ -1336,7 +1950,21 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500">
+                      {editable && bulkSelectMode ? (
+                        <th className="py-3 pl-4 pr-2 w-9">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all visible parts"
+                            checked={allVisibleSelected}
+                            onChange={toggleSelectAllVisible}
+                            className="rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer"
+                          />
+                        </th>
+                      ) : null}
                       <th className="py-3 px-4 font-semibold">Part Name</th>
+                      {selectedSubId === 'main' ? (
+                        <th className="py-3 px-3 font-semibold">Subassembly</th>
+                      ) : null}
                       <th className="py-3 px-3 font-semibold">Part Number</th>
                       <th className="py-3 px-3 font-semibold">Rev</th>
                       <th className="py-3 px-3 font-semibold text-right">Qty</th>
@@ -1354,9 +1982,31 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                     {inHouseParts.map((p) => (
                       <tr
                         key={p.id}
-                        className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                        className={`hover:bg-zinc-50 dark:hover:bg-zinc-900/50 ${
+                          editable && bulkSelectMode && selectedPartIds.includes(p.id)
+                            ? 'bg-red-500/5 dark:bg-red-500/10'
+                            : ''
+                        }`}
                       >
-                        <td className="py-2.5 px-4 font-semibold">{p.name}</td>
+                        {editable && bulkSelectMode ? (
+                          <td className="py-2.5 pl-4 pr-2">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${p.name}`}
+                              checked={selectedPartIds.includes(p.id)}
+                              onChange={() => togglePartSelected(p.id)}
+                              className="rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer"
+                            />
+                          </td>
+                        ) : null}
+                        <td className="py-2.5 px-4 font-semibold">
+                          {p.name}
+                        </td>
+                        {selectedSubId === 'main' ? (
+                          <td className="py-2.5 px-3">
+                            <SubassemblyLabels part={p} inTable />
+                          </td>
+                        ) : null}
                         <td className="py-2.5 px-3 font-mono-tabular">
                           {p.partNumber}
                         </td>
@@ -1389,6 +2039,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         </td>
                         <td className="py-2.5 px-4">
                           <div className="flex items-center justify-end gap-1.5">
+                            {renderActivityButton(p)}
                             <button
                               type="button"
                               onClick={() =>
@@ -1403,6 +2054,28 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                             >
                               <StickyNote className="w-4 h-4" />
                             </button>
+                            {editable || p.pictureUrl ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDetailModal({
+                                    type: 'picture',
+                                    part: p,
+                                    canEdit: editable,
+                                  })
+                                }
+                                title={
+                                  p.pictureUrl
+                                    ? 'View / Delete Part Picture'
+                                    : 'Attach Part Picture'
+                                }
+                                className={`p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 ${
+                                  p.pictureUrl ? 'text-red-500' : 'text-zinc-500'
+                                }`}
+                              >
+                                <ImageIcon className="w-4 h-4" />
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() =>
@@ -1467,7 +2140,21 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500">
+                      {editable && bulkSelectMode ? (
+                        <th className="py-3 pl-4 pr-2 w-9">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all visible parts"
+                            checked={allVisibleSelected}
+                            onChange={toggleSelectAllVisible}
+                            className="rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer"
+                          />
+                        </th>
+                      ) : null}
                       <th className="py-3 px-4 font-semibold">Part Name</th>
+                      {selectedSubId === 'main' ? (
+                        <th className="py-3 px-3 font-semibold">Subassembly</th>
+                      ) : null}
                       <th className="py-3 px-3 font-semibold">Part Number</th>
                       <th className="py-3 px-3 font-semibold text-right">Qty</th>
                       <th className="py-3 px-3 font-semibold text-right">
@@ -1484,9 +2171,31 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                     {purchasedParts.map((p) => (
                       <tr
                         key={p.id}
-                        className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                        className={`hover:bg-zinc-50 dark:hover:bg-zinc-900/50 ${
+                          editable && bulkSelectMode && selectedPartIds.includes(p.id)
+                            ? 'bg-red-500/5 dark:bg-red-500/10'
+                            : ''
+                        }`}
                       >
-                        <td className="py-2.5 px-4 font-semibold">{p.name}</td>
+                        {editable && bulkSelectMode ? (
+                          <td className="py-2.5 pl-4 pr-2">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${p.name}`}
+                              checked={selectedPartIds.includes(p.id)}
+                              onChange={() => togglePartSelected(p.id)}
+                              className="rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer"
+                            />
+                          </td>
+                        ) : null}
+                        <td className="py-2.5 px-4 font-semibold">
+                          {p.name}
+                        </td>
+                        {selectedSubId === 'main' ? (
+                          <td className="py-2.5 px-3">
+                            <SubassemblyLabels part={p} inTable />
+                          </td>
+                        ) : null}
                         <td className="py-2.5 px-3 font-mono-tabular">
                           {p.partNumber}
                         </td>
@@ -1512,6 +2221,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         </td>
                         <td className="py-2.5 px-4">
                           <div className="flex items-center justify-end gap-1.5">
+                            {renderActivityButton(p)}
                             <button
                               type="button"
                               onClick={() =>
@@ -1526,6 +2236,28 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                             >
                               <StickyNote className="w-4 h-4" />
                             </button>
+                            {editable || p.pictureUrl ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDetailModal({
+                                    type: 'picture',
+                                    part: p,
+                                    canEdit: editable,
+                                  })
+                                }
+                                title={
+                                  p.pictureUrl
+                                    ? 'View / Delete Part Picture'
+                                    : 'Attach Part Picture'
+                                }
+                                className={`p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 ${
+                                  p.pictureUrl ? 'text-red-500' : 'text-zinc-500'
+                                }`}
+                              >
+                                <ImageIcon className="w-4 h-4" />
+                              </button>
+                            ) : null}
                             {editable
                               ? renderRequestOrUnsendAction(p, 'request-purchased')
                               : null}
@@ -1607,7 +2339,21 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500">
+                      {editable && bulkSelectMode ? (
+                        <th className="py-3 pl-4 pr-2 w-9">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all visible parts"
+                            checked={allVisibleSelected}
+                            onChange={toggleSelectAllVisible}
+                            className="rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer"
+                          />
+                        </th>
+                      ) : null}
                       <th className="py-3 px-4 font-semibold">Part Name</th>
+                      {selectedSubId === 'main' ? (
+                        <th className="py-3 px-3 font-semibold">Subassembly</th>
+                      ) : null}
                       <th className="py-3 px-3 font-semibold">Part Number</th>
                       <th className="py-3 px-3 font-semibold">Rev</th>
                       <th className="py-3 px-3 font-semibold text-right">Qty</th>
@@ -1626,9 +2372,31 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                     {outsourcedParts.map((p) => (
                       <tr
                         key={p.id}
-                        className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                        className={`hover:bg-zinc-50 dark:hover:bg-zinc-900/50 ${
+                          editable && bulkSelectMode && selectedPartIds.includes(p.id)
+                            ? 'bg-red-500/5 dark:bg-red-500/10'
+                            : ''
+                        }`}
                       >
-                        <td className="py-2.5 px-4 font-semibold">{p.name}</td>
+                        {editable && bulkSelectMode ? (
+                          <td className="py-2.5 pl-4 pr-2">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${p.name}`}
+                              checked={selectedPartIds.includes(p.id)}
+                              onChange={() => togglePartSelected(p.id)}
+                              className="rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer"
+                            />
+                          </td>
+                        ) : null}
+                        <td className="py-2.5 px-4 font-semibold">
+                          {p.name}
+                        </td>
+                        {selectedSubId === 'main' ? (
+                          <td className="py-2.5 px-3">
+                            <SubassemblyLabels part={p} inTable />
+                          </td>
+                        ) : null}
                         <td className="py-2.5 px-3 font-mono-tabular">
                           {p.partNumber}
                         </td>
@@ -1710,6 +2478,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         </td>
                         <td className="py-2.5 px-4">
                           <div className="flex items-center justify-end gap-1.5">
+                            {renderActivityButton(p)}
                             <button
                               type="button"
                               onClick={() =>
@@ -1724,6 +2493,28 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                             >
                               <StickyNote className="w-4 h-4" />
                             </button>
+                            {editable || p.pictureUrl ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDetailModal({
+                                    type: 'picture',
+                                    part: p,
+                                    canEdit: editable,
+                                  })
+                                }
+                                title={
+                                  p.pictureUrl
+                                    ? 'View / Delete Part Picture'
+                                    : 'Attach Part Picture'
+                                }
+                                className={`p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 ${
+                                  p.pictureUrl ? 'text-red-500' : 'text-zinc-500'
+                                }`}
+                              >
+                                <ImageIcon className="w-4 h-4" />
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() =>
@@ -1767,7 +2558,21 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500">
+                    {editable && bulkSelectMode ? (
+                      <th className="py-3 pl-4 pr-2 w-9">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all visible parts"
+                          checked={allVisibleSelected}
+                          onChange={toggleSelectAllVisible}
+                          className="rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer"
+                        />
+                      </th>
+                    ) : null}
                     <th className="py-3 px-4 font-semibold">Part Name</th>
+                    {selectedSubId === 'main' ? (
+                      <th className="py-3 px-3 font-semibold">Subassembly</th>
+                    ) : null}
                     <th className="py-3 px-3 font-semibold">Part Number</th>
                     <th className="py-3 px-3 font-semibold">Rev</th>
                     <th className="py-3 px-3 font-semibold text-right">
@@ -1784,9 +2589,31 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                   {spareParts.map((p) => (
                     <tr
                       key={p.id}
-                      className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                      className={`hover:bg-zinc-50 dark:hover:bg-zinc-900/50 ${
+                        editable && bulkSelectMode && selectedPartIds.includes(p.id)
+                          ? 'bg-red-500/5 dark:bg-red-500/10'
+                          : ''
+                      }`}
                     >
-                      <td className="py-2.5 px-4 font-semibold">{p.name}</td>
+                      {editable && bulkSelectMode ? (
+                        <td className="py-2.5 pl-4 pr-2">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${p.name}`}
+                            checked={selectedPartIds.includes(p.id)}
+                            onChange={() => togglePartSelected(p.id)}
+                            className="rounded border-zinc-400 text-red-600 focus:ring-red-500 cursor-pointer"
+                          />
+                        </td>
+                      ) : null}
+                      <td className="py-2.5 px-4 font-semibold">
+                        {p.name}
+                      </td>
+                      {selectedSubId === 'main' ? (
+                        <td className="py-2.5 px-3">
+                          <SubassemblyLabels part={p} inTable />
+                        </td>
+                      ) : null}
                       <td className="py-2.5 px-3 font-mono-tabular">
                         {p.partNumber}
                       </td>
@@ -1819,6 +2646,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       </td>
                       <td className="py-2.5 px-4">
                         <div className="flex items-center justify-end gap-1">
+                          {renderActivityButton(p)}
                           <button
                             type="button"
                             onClick={() =>
@@ -1833,6 +2661,28 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                           >
                             <StickyNote className="w-4 h-4" />
                           </button>
+                          {editable || p.pictureUrl ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDetailModal({
+                                  type: 'picture',
+                                  part: p,
+                                  canEdit: editable,
+                                })
+                              }
+                              title={
+                                p.pictureUrl
+                                  ? 'View / Delete Part Picture'
+                                  : 'Attach Part Picture'
+                              }
+                              className={`p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 ${
+                                p.pictureUrl ? 'text-red-500' : 'text-zinc-500'
+                              }`}
+                            >
+                              <ImageIcon className="w-4 h-4" />
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             onClick={() =>
@@ -1990,6 +2840,133 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
           editingPart={editingPart}
         />
       ) : null}
+
+      {/* Edit Subassembly Modal */}
+      <Modal
+        open={editingSub !== null}
+        onClose={() => setEditingSub(null)}
+        title="Edit Subassembly"
+        subtitle={`Inside ${selectedProject.name}`}
+        maxWidth="sm"
+      >
+        <form onSubmit={handleUpdateSubassembly} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              Subassembly Name
+            </label>
+            <input
+              type="text"
+              required
+              maxLength={100}
+              value={editSubName}
+              onChange={(e) => setEditSubName(e.target.value)}
+              placeholder="e.g., Swerve Drive"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              Assembly Number
+            </label>
+            <input
+              type="text"
+              required
+              maxLength={40}
+              value={editSubNumber}
+              onChange={(e) => setEditSubNumber(e.target.value)}
+              placeholder="e.g., 451-100"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditingSub(null)}
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={savingSubEdit}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+            >
+              {savingSubEdit ? 'Saving...' : 'Save Subassembly'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {editProjectModal}
+
+      {/* Bulk Edit Modal */}
+      {editable ? (
+        <BulkEditModal
+          open={bulkEditOpen}
+          onClose={() => setBulkEditOpen(false)}
+          projectId={selectedProject.id}
+          selectedParts={selectedParts}
+          onSaved={() => {
+            setSelectedPartIds([]);
+            setBulkSelectMode(false);
+          }}
+        />
+      ) : null}
+
+      {/* Confirm Bulk Delete Modal */}
+      <Modal
+        open={confirmBulkDeleteOpen}
+        onClose={() => setConfirmBulkDeleteOpen(false)}
+        title={`Delete ${selectedParts.length} Selected Part${
+          selectedParts.length === 1 ? '' : 's'
+        }`}
+        subtitle={selectedProject.name}
+        maxWidth="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
+            Are you sure you want to remove the {selectedParts.length} selected
+            part{selectedParts.length === 1 ? '' : 's'} from the BOM? This
+            action cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              disabled={bulkDeleting}
+              onClick={() => setConfirmBulkDeleteOpen(false)}
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={bulkDeleting}
+              onClick={async () => {
+                setBulkDeleting(true);
+                try {
+                  for (const agg of selectedParts) {
+                    for (const ref of agg.sourceParts) {
+                      await deletePart(
+                        selectedProject.id,
+                        ref.subassemblyId,
+                        ref.part.id
+                      );
+                    }
+                  }
+                  setConfirmBulkDeleteOpen(false);
+                  setSelectedPartIds([]);
+                  setBulkSelectMode(false);
+                } finally {
+                  setBulkDeleting(false);
+                }
+              }}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white"
+            >
+              {bulkDeleting ? 'Deleting...' : 'Delete Selected'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Detail & Action Modals */}
       <DetailModals

@@ -78,21 +78,49 @@ interface AppContextValue {
   dismissToast: (id: string) => void;
   createProject: (input: {
     name: string;
+    description?: string;
     editorPassword: string;
     coverImageFile?: File | null;
   }) => Promise<string>;
+  updateProject: (
+    projectId: string,
+    input: {
+      name: string;
+      description?: string;
+      editorPassword: string;
+      coverImageFile?: File | null;
+      removeCoverImage?: boolean;
+    }
+  ) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   createSubassembly: (
     projectId: string,
     input: { name: string; assemblyNumber: string }
   ) => Promise<string>;
+  updateSubassembly: (
+    projectId: string,
+    subassemblyId: string,
+    input: { name: string; assemblyNumber: string }
+  ) => Promise<void>;
   deleteSubassembly: (projectId: string, subassemblyId: string) => Promise<void>;
   createPart: (
     projectId: string,
     subassemblyId: string,
     partData: Omit<
       Part,
-      'id' | 'projectId' | 'subassemblyId' | 'teamCode' | 'createdBy' | 'createdAt' | 'updatedAt'
+      | 'id'
+      | 'projectId'
+      | 'subassemblyId'
+      | 'teamCode'
+      | 'createdBy'
+      | 'createdByName'
+      | 'updatedBy'
+      | 'updatedByName'
+      | 'requestedBy'
+      | 'requestedByName'
+      | 'requestedAt'
+      | 'createdAt'
+      | 'updatedAt'
     >
   ) => Promise<string>;
   updatePart: (
@@ -115,6 +143,16 @@ const AppContext = createContext<AppContextValue | null>(null);
 function makeId(prefix: string): string {
   const rand = Math.random().toString(36).slice(2, 8);
   return `${prefix}_${Date.now().toString(36)}_${rand}`;
+}
+
+function getUserActorLabel(u: User | null): string {
+  if (!u) return 'Team Member';
+  const displayName = u.displayName?.trim();
+  const email = u.email?.trim();
+  if (displayName && email) return `${displayName} (${email})`.slice(0, 120);
+  if (displayName) return displayName.slice(0, 120);
+  if (email) return email.slice(0, 120);
+  return u.uid.slice(0, 120);
 }
 
 function safeSessionGet(key: string): string | null {
@@ -391,10 +429,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const createProject = useCallback(
     async ({
       name,
+      description,
       editorPassword,
       coverImageFile,
     }: {
       name: string;
+      description?: string;
       editorPassword: string;
       coverImageFile?: File | null;
     }) => {
@@ -413,6 +453,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         await setDoc(doc(db, 'projects', projectId), {
           teamCode: 'FRC451',
           name: name.trim().slice(0, 100),
+          description: (description || '').trim().slice(0, 500),
           coverImageUrl,
           editorPassword: editorPassword.trim().slice(0, 64),
           createdBy: user.uid,
@@ -431,6 +472,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     },
     [user, pushToast]
+  );
+
+  const updateProject = useCallback(
+    async (
+      projectId: string,
+      {
+        name,
+        description,
+        editorPassword,
+        coverImageFile,
+        removeCoverImage,
+      }: {
+        name: string;
+        description?: string;
+        editorPassword: string;
+        coverImageFile?: File | null;
+        removeCoverImage?: boolean;
+      }
+    ) => {
+      if (!user) throw new Error('Must be signed in.');
+      const path = `projects/${projectId}`;
+      const existingProj = projects.find((p) => p.id === projectId);
+      const previousCoverUrl = existingProj?.coverImageUrl || '';
+      let nextCoverImageUrl = previousCoverUrl;
+
+      if (coverImageFile) {
+        const uploaded = await uploadTeamFile(
+          coverImageFile,
+          `projects/${projectId}/cover_${Date.now()}_${coverImageFile.name}`
+        );
+        nextCoverImageUrl = uploaded.url.slice(0, 2000);
+        if (previousCoverUrl) {
+          await deleteTeamFileByUrl(previousCoverUrl);
+        }
+      } else if (removeCoverImage) {
+        if (previousCoverUrl) {
+          await deleteTeamFileByUrl(previousCoverUrl);
+        }
+        nextCoverImageUrl = '';
+      }
+
+      try {
+        await updateDoc(doc(db, 'projects', projectId), {
+          name: name.trim().slice(0, 100),
+          description: (description || '').trim().slice(0, 500),
+          coverImageUrl: nextCoverImageUrl,
+          editorPassword: editorPassword.trim().slice(0, 64),
+          updatedAt: serverTimestamp(),
+        });
+        pushToast('success', `Project "${name.trim()}" updated.`);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, path);
+      }
+    },
+    [user, projects, pushToast]
   );
 
   const deleteProject = useCallback(
@@ -515,6 +611,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     [user, pushToast]
   );
 
+  const updateSubassembly = useCallback(
+    async (
+      projectId: string,
+      subassemblyId: string,
+      { name, assemblyNumber }: { name: string; assemblyNumber: string }
+    ) => {
+      if (!user) throw new Error('Must be signed in.');
+      const path = `projects/${projectId}/subassemblies/${subassemblyId}`;
+      try {
+        await updateDoc(
+          doc(db, 'projects', projectId, 'subassemblies', subassemblyId),
+          {
+            name: name.trim().slice(0, 100),
+            assemblyNumber: assemblyNumber.trim().slice(0, 40),
+            updatedAt: serverTimestamp(),
+          }
+        );
+        pushToast('success', `Subassembly "${name.trim()}" updated.`);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, path);
+      }
+    },
+    [user, pushToast]
+  );
+
   const deleteSubassembly = useCallback(
     async (projectId: string, subassemblyId: string) => {
       const path = `projects/${projectId}/subassemblies/${subassemblyId}`;
@@ -565,6 +686,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         | 'subassemblyId'
         | 'teamCode'
         | 'createdBy'
+        | 'createdByName'
+        | 'updatedBy'
+        | 'updatedByName'
+        | 'requestedBy'
+        | 'requestedByName'
+        | 'requestedAt'
         | 'createdAt'
         | 'updatedAt'
       >
@@ -572,6 +699,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!user) throw new Error('Must be signed in.');
       const partId = makeId('part');
       const path = `projects/${projectId}/subassemblies/${subassemblyId}/parts/${partId}`;
+      const actorLabel = getUserActorLabel(user);
+      const isImmediateRequest =
+        partData.status === 'Requested' || (partData.sparesRequested || 0) > 0;
       try {
         await setDoc(
           doc(db, 'projects', projectId, 'subassemblies', subassemblyId, 'parts', partId),
@@ -581,6 +711,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             subassemblyId,
             teamCode: 'FRC451',
             createdBy: user.uid,
+            createdByName: actorLabel,
+            updatedBy: user.uid,
+            updatedByName: actorLabel,
+            requestedBy: isImmediateRequest ? user.uid : '',
+            requestedByName: isImmediateRequest ? actorLabel : '',
+            requestedAt: isImmediateRequest ? serverTimestamp() : null,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           }
@@ -601,19 +737,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       partId: string,
       updates: Partial<Part>
     ) => {
+      if (!user) throw new Error('Must be signed in.');
       const path = `projects/${projectId}/subassemblies/${subassemblyId}/parts/${partId}`;
+      const actorLabel = getUserActorLabel(user);
       try {
-        const cleanUpdates = { ...updates };
+        const cleanUpdates: Record<string, unknown> = { ...updates };
         delete cleanUpdates.id;
         delete cleanUpdates.projectId;
         delete cleanUpdates.subassemblyId;
         delete cleanUpdates.teamCode;
         delete cleanUpdates.createdBy;
+        delete cleanUpdates.createdByName;
         delete cleanUpdates.createdAt;
+        delete cleanUpdates.updatedBy;
+        delete cleanUpdates.updatedByName;
+        delete cleanUpdates.updatedAt;
+        delete cleanUpdates.requestedBy;
+        delete cleanUpdates.requestedByName;
+        delete cleanUpdates.requestedAt;
+
+        const isFullPropertyReset =
+          'name' in cleanUpdates && 'partNumber' in cleanUpdates;
+        const isShopFloorOrSpendingUpdate =
+          !isFullPropertyReset &&
+          ('totalMachined' in cleanUpdates ||
+            'totalOrdered' in cleanUpdates ||
+            'machinesUsed' in cleanUpdates ||
+            'machiningNotes' in cleanUpdates);
+
+        const isRequesting =
+          !isShopFloorOrSpendingUpdate &&
+          (cleanUpdates.status === 'Requested' ||
+            (typeof cleanUpdates.sparesRequested === 'number' &&
+              cleanUpdates.sparesRequested > 0));
+        const isClearingRequest =
+          !isShopFloorOrSpendingUpdate &&
+          (cleanUpdates.status === 'Not Started' ||
+            (cleanUpdates.status === 'Obtained' &&
+              cleanUpdates.sparesRequested === 0));
+
+        if (isRequesting) {
+          cleanUpdates.requestedBy = user.uid;
+          cleanUpdates.requestedByName = actorLabel;
+          cleanUpdates.requestedAt = serverTimestamp();
+        } else if (isClearingRequest) {
+          cleanUpdates.requestedBy = '';
+          cleanUpdates.requestedByName = '';
+          cleanUpdates.requestedAt = null;
+        }
+
         await updateDoc(
           doc(db, 'projects', projectId, 'subassemblies', subassemblyId, 'parts', partId),
           {
             ...cleanUpdates,
+            updatedBy: user.uid,
+            updatedByName: actorLabel,
             updatedAt: serverTimestamp(),
           }
         );
@@ -621,7 +799,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         handleFirestoreError(err, OperationType.UPDATE, path);
       }
     },
-    []
+    [user]
   );
 
   const deletePart = useCallback(
@@ -769,8 +947,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         pushToast,
         dismissToast,
         createProject,
+        updateProject,
         deleteProject,
         createSubassembly,
+        updateSubassembly,
         deleteSubassembly,
         createPart,
         updatePart,
