@@ -537,6 +537,23 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                           {p.partNumber} · Qty {p.quantity}
                         </div>
                       </div>
+                      {p.type === 'Custom' &&
+                      p.source === 'In-House' &&
+                      p.status === 'In-Progress' ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDetailModal({
+                              type: 'in-progress-details',
+                              part: p,
+                            })
+                          }
+                          title="View machinist progress"
+                          className="shrink-0 underline decoration-dotted underline-offset-4 decoration-amber-500/70 hover:opacity-80 cursor-pointer"
+                        >
+                          <StatusLabel status={p.status} />
+                        </button>
+                      ) : null}
                     </div>
                     <div className="text-xs text-zinc-600 dark:text-zinc-400">
                       {p.source === 'In-House'
@@ -645,6 +662,28 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       );
     }
     return <span className="whitespace-nowrap">{p.source}</span>;
+  };
+
+  const renderStatusCell = (p: AggregatedPart) => {
+    if (
+      p.type === 'Custom' &&
+      p.source === 'In-House' &&
+      p.status === 'In-Progress'
+    ) {
+      return (
+        <button
+          type="button"
+          onClick={() =>
+            setDetailModal({ type: 'in-progress-details', part: p })
+          }
+          title="View what has been done by the machinist"
+          className="inline-flex items-center underline decoration-dotted underline-offset-4 decoration-amber-500/70 hover:opacity-80 transition-opacity cursor-pointer"
+        >
+          <StatusLabel status={p.status} />
+        </button>
+      );
+    }
+    return <StatusLabel status={p.status} />;
   };
 
   return (
@@ -971,7 +1010,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         {renderMaterialOrVendorCell(p)}
                       </td>
                       <td className="py-2.5 px-3">
-                        <StatusLabel status={p.status} />
+                        {renderStatusCell(p)}
                       </td>
                       <td className="py-2.5 px-3">
                         <button
@@ -1120,7 +1159,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                           <PriorityLabel priority={p.priority} />
                         </td>
                         <td className="py-2.5 px-3">
-                          <StatusLabel status={p.status} />
+                          {renderStatusCell(p)}
                         </td>
                         <td className="py-2.5 px-4">
                           <div className="flex items-center justify-end gap-1.5">

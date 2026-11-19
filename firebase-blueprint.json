@@ -279,6 +279,10 @@
         "machinesUsed": {
           "type": "array"
         },
+        "machiningNotes": {
+          "type": "string",
+          "maxLength": 1000
+        },
         "createdBy": {
           "type": "string",
           "minLength": 1,

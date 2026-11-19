@@ -133,7 +133,8 @@ service cloud.firestore {
           'materialCategory', 'materialName', 'stockShape', 'dimensions', 'pictureUrl',
           'drawingPdf', 'attachedFiles', 'identicalGroupId', 'notes', 'status',
           'priority', 'assignedMachinist', 'vendorLink', 'sparesRequested', 'sparesCount',
-          'totalMachined', 'totalOrdered', 'machinesUsed', 'createdBy', 'createdAt', 'updatedAt'
+          'totalMachined', 'totalOrdered', 'machinesUsed', 'machiningNotes',
+          'createdBy', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.projectId) && data.projectId == projectId
         && isValidId(data.subassemblyId) && data.subassemblyId == subassemblyId
@@ -168,6 +169,7 @@ service cloud.firestore {
         && data.totalOrdered is int && data.totalOrdered >= 0 && data.totalOrdered <= 100000
         && data.machinesUsed is list && data.machinesUsed.size() <= 25
         && (data.machinesUsed.size() == 0 || (data.machinesUsed[0] is string && data.machinesUsed[0].size() <= 60))
+        && (!('machiningNotes' in data) || (data.machiningNotes is string && data.machiningNotes.size() <= 1000))
         && data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -298,7 +300,7 @@ service cloud.firestore {
                 'dimensions', 'pictureUrl', 'drawingPdf', 'attachedFiles', 'identicalGroupId',
                 'notes', 'status', 'priority', 'assignedMachinist', 'vendorLink',
                 'sparesRequested', 'sparesCount', 'totalMachined', 'totalOrdered', 'machinesUsed',
-                'updatedAt'
+                'machiningNotes', 'updatedAt'
               ])
               // Action 2: Notes / Files / Drawing PDF quick updates
               || incoming().diff(existing()).affectedKeys().hasOnly(['notes', 'updatedAt'])
@@ -311,7 +313,7 @@ service cloud.firestore {
               || incoming().diff(existing()).affectedKeys().hasOnly(['sparesCount', 'updatedAt'])
               // Action 4: Machining Manager update
               || incoming().diff(existing()).affectedKeys().hasOnly([
-                'machinesUsed', 'status', 'totalMachined', 'sparesCount', 'updatedAt'
+                'machinesUsed', 'status', 'totalMachined', 'sparesCount', 'machiningNotes', 'updatedAt'
               ])
               // Action 5: Spending Manager update
               || incoming().diff(existing()).affectedKeys().hasOnly([

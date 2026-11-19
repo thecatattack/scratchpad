@@ -471,6 +471,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         totalMachined: 0,
         totalOrdered: 0,
         machinesUsed: [],
+        machiningNotes: '',
       };
 
       if (editingPart) {

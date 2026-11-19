@@ -169,6 +169,7 @@ export interface Part {
   totalMachined: number;
   totalOrdered: number;
   machinesUsed: string[];
+  machiningNotes?: string;
   createdBy: string;
   createdAt?: unknown;
   updatedAt?: unknown;

@@ -111,6 +111,9 @@ export function buildFlattenedMainParts(
     const notes = Array.from(
       new Set(group.map((p) => p.notes?.trim()).filter(Boolean))
     ).join('\n---\n');
+    const machiningNotes = Array.from(
+      new Set(group.map((p) => p.machiningNotes?.trim()).filter(Boolean))
+    ).join('\n---\n');
     const assignedMachinist = Array.from(
       new Set(group.map((p) => p.assignedMachinist?.trim()).filter(Boolean))
     ).join(', ');
@@ -129,6 +132,7 @@ export function buildFlattenedMainParts(
       drawingPdf,
       pictureUrl,
       notes,
+      machiningNotes,
       assignedMachinist,
       vendorLink,
       status: combineStatus(group.map((p) => p.status)),

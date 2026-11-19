@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
+  CheckCircle2,
   CheckSquare,
+  Clock,
   Download,
   ExternalLink,
   FileText,
@@ -39,6 +41,7 @@ export type ActiveDetailModal =
   | { type: 'request-more-spares'; part: AggregatedPart }
   | { type: 'machine-action'; part: AggregatedPart }
   | { type: 'approved-action'; part: AggregatedPart }
+  | { type: 'in-progress-details'; part: AggregatedPart }
   | null;
 
 interface DetailModalsProps {
@@ -63,6 +66,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
   const [sparesDraft, setSparesDraft] = useState(0);
   const [linkDraft, setLinkDraft] = useState('');
   const [machinesUsedDraft, setMachinesUsedDraft] = useState<string[]>([]);
+  const [machiningNotesDraft, setMachiningNotesDraft] = useState('');
   const [statusDraft, setStatusDraft] = useState<PartStatus>('Requested');
   const [totalCountDraft, setTotalCountDraft] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -77,6 +81,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
     setSparesDraft(modal.type === 'spare-edit' ? part.sparesCount : part.sparesRequested || 0);
     setLinkDraft(part.vendorLink || '');
     setMachinesUsedDraft(part.machinesUsed || []);
+    setMachiningNotesDraft(part.machiningNotes || '');
     setStatusDraft(part.status === 'Not Started' ? 'Requested' : part.status);
     setTotalCountDraft(
       modal.type === 'machine-action'
@@ -1184,6 +1189,20 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             </div>
           </div>
 
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              What Has Been Done / Machinist Notes (Optional)
+            </label>
+            <textarea
+              rows={3}
+              maxLength={1000}
+              value={machiningNotesDraft}
+              onChange={(e) => setMachiningNotesDraft(e.target.value)}
+              placeholder="e.g., Cut stock to length on bandsaw, CNC pocket complete; needs tapping next."
+              className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-xs leading-relaxed"
+            />
+          </div>
+
           <div className="text-xs text-zinc-500 dark:text-zinc-400">
             Calculated Spares Produced:{' '}
             <span className="font-mono-tabular font-semibold text-zinc-900 dark:text-white">
@@ -1205,6 +1224,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               onClick={async () => {
                 const total = Math.max(0, Math.floor(totalCountDraft));
                 const spares = Math.max(0, total - part.quantity);
+                const cleanNotes = machiningNotesDraft.trim().slice(0, 1000);
                 // Update contributing parts proportionally or on primary
                 setBusy(true);
                 try {
@@ -1215,6 +1235,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                       status: statusDraft,
                       totalMachined: total,
                       sparesCount: spares,
+                      machiningNotes: cleanNotes,
                     });
                   } else {
                     // Distribute across aggregated subassembly parts
@@ -1232,6 +1253,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                         status: statusDraft,
                         totalMachined: alloc,
                         sparesCount: subSpares,
+                        machiningNotes: cleanNotes,
                       });
                     }
                   }
@@ -1351,6 +1373,141 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
             >
               {busy ? 'Saving...' : 'Save Approval'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
+  // 15. In-Progress Custom In-House Machining Details Pop-up
+  if (modal.type === 'in-progress-details') {
+    const completedMachines = part.machinesUsed || [];
+    const assignedMachines = part.machines || [];
+    const allMachinesList = Array.from(
+      new Set([...assignedMachines, ...completedMachines])
+    );
+    const neededTotal = part.quantity + (part.sparesRequested || 0);
+    const pct =
+      neededTotal > 0
+        ? Math.min(100, Math.round(((part.totalMachined || 0) / neededTotal) * 100))
+        : 0;
+    const hasProgress =
+      completedMachines.length > 0 ||
+      (part.totalMachined || 0) > 0 ||
+      Boolean(part.machiningNotes?.trim());
+
+    return (
+      <Modal
+        open
+        onClose={onClose}
+        title="In-Progress Machining Update"
+        subtitle={`${part.partNumber} · ${part.name}`}
+        maxWidth="md"
+      >
+        <div className="space-y-4 text-sm">
+          {/* Quantity & Assigned Machinist */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] space-y-2">
+              <div className="text-xs text-zinc-500">Machined Count Progress</div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-lg font-bold font-mono-tabular text-zinc-900 dark:text-white">
+                  {part.totalMachined || 0}{' '}
+                  <span className="text-xs font-normal text-zinc-500">
+                    / {part.quantity} BOM
+                    {part.sparesRequested > 0
+                      ? ` (+${part.sparesRequested} spares req)`
+                      : ''}
+                  </span>
+                </span>
+                <span className="text-xs font-mono-tabular font-semibold text-amber-600 dark:text-amber-400">
+                  {pct}%
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+                <div
+                  className="h-full bg-amber-500 transition-all"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] flex flex-col justify-center">
+              <div className="text-xs text-zinc-500">Assigned Machinist</div>
+              <div className="font-semibold text-sm text-zinc-900 dark:text-white mt-0.5">
+                {part.assignedMachinist || 'Unassigned'}
+              </div>
+            </div>
+          </div>
+
+          {/* Machines Completed vs Pending */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                Shop Operations Completed (Entered by Machinist)
+              </span>
+              <span className="font-mono-tabular text-zinc-500">
+                {completedMachines.length} / {allMachinesList.length} done
+              </span>
+            </div>
+
+            {allMachinesList.length === 0 ? (
+              <p className="text-xs text-zinc-500">
+                No shop machines assigned to this part.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {allMachinesList.map((machine) => {
+                  const done = completedMachines.includes(machine);
+                  return (
+                    <div
+                      key={machine}
+                      className={`flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-lg border text-xs font-medium ${
+                        done
+                          ? 'border-emerald-600/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                          : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] text-zinc-500 dark:text-zinc-400'
+                      }`}
+                    >
+                      <span className="truncate">{machine}</span>
+                      {done ? (
+                        <span className="inline-flex items-center gap-1 font-semibold shrink-0">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Done</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 shrink-0">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Pending</span>
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Machinist Progress Notes */}
+          <div className="space-y-1.5">
+            <div className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              Machinist Progress Notes
+            </div>
+            <div className="p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] text-xs leading-relaxed whitespace-pre-wrap text-zinc-700 dark:text-zinc-300">
+              {part.machiningNotes?.trim()
+                ? part.machiningNotes
+                : hasProgress
+                ? 'No extra written notes from the machinist yet.'
+                : 'No completed machines or notes have been logged by the machinist yet.'}
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white"
+            >
+              Close
             </button>
           </div>
         </div>
