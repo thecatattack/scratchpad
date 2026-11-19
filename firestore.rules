@@ -62,9 +62,9 @@ service cloud.firestore {
       return data.keys().hasAll(['teamCode', 'totalBytesUsed', 'fileCount', 'monthlyUploadsCount', 'monthKey', 'updatedBy', 'updatedAt'])
         && data.keys().hasOnly(['teamCode', 'totalBytesUsed', 'fileCount', 'monthlyUploadsCount', 'monthKey', 'updatedBy', 'updatedAt'])
         && data.teamCode == 'FRC451'
-        && data.totalBytesUsed is int && data.totalBytesUsed >= 0 && data.totalBytesUsed <= 4294967296
-        && data.fileCount is int && data.fileCount >= 0 && data.fileCount <= 50000
-        && data.monthlyUploadsCount is int && data.monthlyUploadsCount >= 0 && data.monthlyUploadsCount <= 4500
+        && data.totalBytesUsed is number && data.totalBytesUsed >= 0 && data.totalBytesUsed <= 4294967296
+        && data.fileCount is number && data.fileCount >= 0 && data.fileCount <= 50000
+        && data.monthlyUploadsCount is number && data.monthlyUploadsCount >= 0 && data.monthlyUploadsCount <= 4500
         && data.monthKey is string && data.monthKey.size() == 7 && data.monthKey.matches('^[0-9]{4}-[0-9]{2}$')
         && data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128
         && data.updatedAt is timestamp;
@@ -113,7 +113,7 @@ service cloud.firestore {
         && pdf.keys().hasAll(['name', 'size', 'url', 'storagePath'])
         && pdf.keys().hasOnly(['name', 'size', 'url', 'storagePath', 'contentType'])
         && pdf.name is string && pdf.name.size() >= 1 && pdf.name.size() <= 200
-        && pdf.size is int && pdf.size >= 0 && pdf.size <= 10485760
+        && pdf.size is number && pdf.size >= 0 && pdf.size <= 10485760
         && pdf.url is string && pdf.url.size() >= 1 && pdf.url.size() <= 2000
         && pdf.storagePath is string && pdf.storagePath.size() >= 1 && pdf.storagePath.size() <= 500
         && (!('contentType' in pdf) || pdf.contentType == null || (pdf.contentType is string && pdf.contentType.size() <= 120))
@@ -145,7 +145,7 @@ service cloud.firestore {
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
         && data.partNumber is string && data.partNumber.size() >= 1 && data.partNumber.size() <= 60
         && (!('revision' in data) || data.revision == null || (data.revision is string && data.revision.size() <= 20))
-        && data.quantity is int && data.quantity >= 1 && data.quantity <= 100000
+        && data.quantity is number && data.quantity >= 1 && data.quantity <= 100000
         && data.type in ['Custom', 'COTS']
         && data.source in ['In-House', 'Outsourced', 'Purchased', 'Inventory']
         && data.vendor is string && data.vendor.size() <= 80
@@ -167,10 +167,10 @@ service cloud.firestore {
         && data.priority in ['Low Priority', 'Regular Priority', 'High Priority', 'Critical Priority']
         && data.assignedMachinist is string && data.assignedMachinist.size() <= 80
         && data.vendorLink is string && data.vendorLink.size() <= 1000
-        && data.sparesRequested is int && data.sparesRequested >= 0 && data.sparesRequested <= 10000
-        && data.sparesCount is int && data.sparesCount >= 0 && data.sparesCount <= 10000
-        && data.totalMachined is int && data.totalMachined >= 0 && data.totalMachined <= 100000
-        && data.totalOrdered is int && data.totalOrdered >= 0 && data.totalOrdered <= 100000
+        && data.sparesRequested is number && data.sparesRequested >= 0 && data.sparesRequested <= 10000
+        && data.sparesCount is number && data.sparesCount >= 0 && data.sparesCount <= 10000
+        && data.totalMachined is number && data.totalMachined >= 0 && data.totalMachined <= 100000
+        && data.totalOrdered is number && data.totalOrdered >= 0 && data.totalOrdered <= 100000
         && data.machinesUsed is list && data.machinesUsed.size() <= 25
         && (data.machinesUsed.size() == 0 || (data.machinesUsed[0] is string && data.machinesUsed[0].size() <= 60))
         && (!('machiningNotes' in data) || data.machiningNotes == null || (data.machiningNotes is string && data.machiningNotes.size() <= 1000))
@@ -251,8 +251,8 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          isAdmin()
-          || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'coverImageUrl', 'editorPassword', 'updatedAt'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'coverImageUrl', 'editorPassword', 'updatedAt'])
+          || isAdmin()
         );
       allow delete: if isVerifiedUser() && isValidId(projectId);
 
@@ -276,8 +276,8 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && (
-            isAdmin()
-            || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'assemblyNumber', 'updatedAt'])
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'assemblyNumber', 'updatedAt'])
+            || isAdmin()
           );
         allow delete: if isVerifiedUser() && isValidId(projectId) && isValidId(subassemblyId);
 
@@ -301,7 +301,7 @@ service cloud.firestore {
             && isValidId(subassemblyId)
             && isValidPart(incoming(), projectId, subassemblyId)
             && incoming().createdBy == existing().createdBy
-            && (isAdmin() || !('createdByName' in incoming().diff(existing()).affectedKeys()))
+            && (!('createdByName' in incoming().diff(existing()).affectedKeys()) || isAdmin())
             && incoming().createdAt == existing().createdAt
             && incoming().updatedBy == request.auth.uid
             && incoming().updatedAt == request.time
@@ -311,9 +311,8 @@ service cloud.firestore {
               || (incoming().requestedAt == request.time && incoming().requestedBy == request.auth.uid)
             )
             && (
-              isAdmin()
               // Action 1: Full Parts Manager property re-edit (resets workflow fields)
-              || incoming().diff(existing()).affectedKeys().hasOnly([
+              incoming().diff(existing()).affectedKeys().hasOnly([
                 'name', 'partNumber', 'revision', 'quantity', 'type', 'source', 'vendor', 'manufacturer',
                 'costsMoney', 'machines', 'materialCategory', 'materialName', 'stockShape',
                 'dimensions', 'pictureUrl', 'drawingPdf', 'attachedFiles', 'identicalGroupId',
@@ -346,6 +345,7 @@ service cloud.firestore {
               || incoming().diff(existing()).affectedKeys().hasOnly([
                 'identicalGroupId', 'updatedBy', 'updatedByName', 'updatedAt'
               ])
+              || isAdmin()
             );
           allow delete: if isVerifiedUser() && isValidId(projectId) && isValidId(subassemblyId) && isValidId(partId);
         }
