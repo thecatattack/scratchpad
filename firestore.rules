@@ -110,11 +110,12 @@ service cloud.firestore {
       return pdf == null || (
         pdf is map
         && pdf.keys().hasAll(['name', 'size', 'url', 'storagePath'])
-        && pdf.keys().hasOnly(['name', 'size', 'url', 'storagePath'])
+        && pdf.keys().hasOnly(['name', 'size', 'url', 'storagePath', 'contentType'])
         && pdf.name is string && pdf.name.size() >= 1 && pdf.name.size() <= 200
         && pdf.size is int && pdf.size >= 0 && pdf.size <= 10485760
         && pdf.url is string && pdf.url.size() >= 1 && pdf.url.size() <= 2000
         && pdf.storagePath is string && pdf.storagePath.size() >= 1 && pdf.storagePath.size() <= 500
+        && (!('contentType' in pdf) || (pdf.contentType is string && pdf.contentType.size() <= 120))
       );
     }
 
@@ -318,6 +319,10 @@ service cloud.firestore {
               // Action 5: Spending Manager update
               || incoming().diff(existing()).affectedKeys().hasOnly([
                 'status', 'totalOrdered', 'sparesCount', 'updatedAt'
+              ])
+              // Action 6: Identical part group linking from Part Wizard
+              || incoming().diff(existing()).affectedKeys().hasOnly([
+                'identicalGroupId', 'updatedAt'
               ])
             );
           allow delete: if isVerifiedUser() && isValidId(projectId) && isValidId(subassemblyId) && isValidId(partId);

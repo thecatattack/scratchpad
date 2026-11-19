@@ -401,31 +401,44 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         finalPictureUrl = up.url;
       }
 
-      let finalDrawingPdf = pathway === 'COTS' ? null : drawingPdf;
+      const sanitizeFileRef = (f: StoredFileRef): StoredFileRef => ({
+        name: (f.name || 'file').slice(0, 200),
+        size: Math.max(0, Math.min(10485760, Math.round(f.size || 0))),
+        url: (f.url || '').slice(0, 2000),
+        storagePath: (f.storagePath || '').slice(0, 500),
+        ...(f.contentType ? { contentType: f.contentType.slice(0, 120) } : {}),
+      });
+
+      const rawDrawingPdf = pathway === 'COTS' ? null : drawingPdf;
+      let finalDrawingPdf: StoredFileRef | null = rawDrawingPdf
+        ? sanitizeFileRef(rawDrawingPdf)
+        : null;
       if (pathway !== 'COTS' && drawingPdfFile) {
-        finalDrawingPdf = await uploadTeamFile(
-          drawingPdfFile,
-          `${uploadNamespace}_drawing_${drawingPdfFile.name}`
+        finalDrawingPdf = sanitizeFileRef(
+          await uploadTeamFile(
+            drawingPdfFile,
+            `${uploadNamespace}_drawing_${drawingPdfFile.name}`
+          )
         );
       }
 
-      const uploadedExtras: StoredFileRef[] = [...attachedFiles];
+      const uploadedExtras: StoredFileRef[] = attachedFiles.map(sanitizeFileRef);
       for (const file of newAttachmentFiles) {
         const up = await uploadTeamFile(
           file,
           `${uploadNamespace}_att_${file.name}`
         );
-        uploadedExtras.push(up);
+        uploadedExtras.push(sanitizeFileRef(up));
       }
 
-      const totalQty = Math.max(1, Math.floor(quantity));
+      const totalQty = Math.min(100000, Math.max(1, Math.floor(quantity)));
       const isSplitCots = pathway === 'COTS' && cotsPathway === 'Split';
       const clampedInvQty = isSplitCots
         ? Math.max(1, Math.min(totalQty, Math.floor(inventoryQty)))
         : 0;
       const purchaseBomQty = isSplitCots ? Math.max(0, totalQty - clampedInvQty) : 0;
       const cleanSparesToBuy = isSplitCots
-        ? Math.max(0, Math.floor(sparesToPurchase))
+        ? Math.min(10000, Math.max(0, Math.floor(sparesToPurchase)))
         : 0;
 
       const type: PartType = pathway === 'COTS' ? 'COTS' : 'Custom';
@@ -438,32 +451,35 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           ? 'Outsourced'
           : 'In-House';
 
-      const vendor =
+      const vendor = (
         pathway === 'COTS'
           ? vendorSelect === 'Other'
             ? customVendor.trim()
             : vendorSelect
-          : '';
+          : ''
+      ).slice(0, 80);
 
-      const manufacturer =
+      const manufacturer = (
         pathway === 'Outsourced'
           ? manufacturerSelect === 'Other'
             ? customManufacturer.trim()
             : manufacturerSelect
-          : '';
+          : ''
+      ).slice(0, 80);
 
-      const resolvedMaterialName =
+      const resolvedMaterialName = (
         pathway === 'COTS'
           ? ''
           : materialSelect === 'Other'
           ? customMaterial.trim()
-          : materialSelect;
+          : materialSelect
+      ).slice(0, 80);
 
-      let identicalGroupId = editingPart?.identicalGroupId || '';
+      let identicalGroupId = (editingPart?.identicalGroupId || '').slice(0, 128);
       if (pathway !== 'COTS' && hasIdentical && identicalPartId) {
         const match = customPartsCandidates.find((p) => p.id === identicalPartId);
         if (match) {
-          identicalGroupId = match.identicalGroupId || `grp_${match.id}`;
+          identicalGroupId = (match.identicalGroupId || `grp_${match.id}`).slice(0, 128);
           if (!match.identicalGroupId) {
             await updatePart(projectId, match.subassemblyId, match.id, {
               identicalGroupId,
@@ -477,24 +493,24 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
       const cleanDims: StockDimensions =
         pathway !== 'COTS' && materialCategory === 'Stock Material' && stockShape
           ? {
-              ...(dimensions.length ? { length: dimensions.length.trim() } : {}),
-              ...(dimensions.width ? { width: dimensions.width.trim() } : {}),
-              ...(dimensions.height ? { height: dimensions.height.trim() } : {}),
+              ...(dimensions.length ? { length: dimensions.length.trim().slice(0, 30) } : {}),
+              ...(dimensions.width ? { width: dimensions.width.trim().slice(0, 30) } : {}),
+              ...(dimensions.height ? { height: dimensions.height.trim().slice(0, 30) } : {}),
               ...(dimensions.thickness
-                ? { thickness: dimensions.thickness.trim() }
+                ? { thickness: dimensions.thickness.trim().slice(0, 30) }
                 : {}),
               ...(dimensions.innerDiameter
-                ? { innerDiameter: dimensions.innerDiameter.trim() }
+                ? { innerDiameter: dimensions.innerDiameter.trim().slice(0, 30) }
                 : {}),
               ...(dimensions.outerDiameter
-                ? { outerDiameter: dimensions.outerDiameter.trim() }
+                ? { outerDiameter: dimensions.outerDiameter.trim().slice(0, 30) }
                 : {}),
             }
           : {};
 
       const basePayload = {
-        name: name.trim(),
-        partNumber: partNumber.trim(),
+        name: name.trim().slice(0, 120),
+        partNumber: partNumber.trim().slice(0, 60),
         quantity: totalQty,
         type,
         source,
@@ -504,7 +520,10 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           pathway === 'Outsourced'
             ? costsMoney
             : pathway === 'COTS' && cotsPathway === 'Purchased',
-        machines: pathway === 'In-House' ? selectedMachines : [],
+        machines:
+          pathway === 'In-House'
+            ? selectedMachines.slice(0, 25).map((m) => m.slice(0, 60))
+            : [],
         materialCategory: pathway === 'COTS' ? ('' as MaterialCategory) : materialCategory,
         materialName: resolvedMaterialName,
         stockShape:
@@ -512,11 +531,11 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
             ? stockShape
             : ('' as StockShape),
         dimensions: cleanDims,
-        pictureUrl: finalPictureUrl,
+        pictureUrl: (finalPictureUrl || '').slice(0, 2000),
         drawingPdf: finalDrawingPdf,
         attachedFiles: uploadedExtras.slice(0, 15),
         identicalGroupId,
-        notes: notes.trim(),
+        notes: notes.trim().slice(0, 2000),
         // Status and workflow fields reset on edit or initialize on create
         status:
           pathway === 'COTS' && cotsPathway === 'Inventory'
@@ -563,7 +582,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           source: 'Inventory' as PartSource,
           costsMoney: true,
           status: 'Obtained' as const,
-          vendorLink: splitVendorLink.trim(),
+          vendorLink: splitVendorLink.trim().slice(0, 1000),
           sparesRequested: cleanSparesToBuy,
         };
         if (editingPart) {
@@ -606,7 +625,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           status: sendSplitRequestNow
             ? ('Requested' as const)
             : ('Not Started' as const),
-          vendorLink: splitVendorLink.trim(),
+          vendorLink: splitVendorLink.trim().slice(0, 1000),
           sparesRequested: cleanSparesToBuy,
         };
 

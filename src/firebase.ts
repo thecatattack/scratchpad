@@ -267,19 +267,23 @@ export async function uploadTeamFile(
   validateFileSize(processedFile);
   await checkStorageQuotaBeforeUpload(processedFile.size);
 
+  const safeStoragePath =
+    storagePath.length > 500 ? storagePath.slice(0, 500) : storagePath;
+
   try {
-    const fileRef = ref(storage, storagePath);
+    const fileRef = ref(storage, safeStoragePath);
     const snapshot = await uploadBytes(fileRef, processedFile, {
       contentType: processedFile.type || 'application/octet-stream',
     });
     const url = await getDownloadURL(snapshot.ref);
-    await recordStorageUpload(processedFile.size);
+    const cleanSize = Math.max(0, Math.round(processedFile.size));
+    await recordStorageUpload(cleanSize);
     return {
-      name: processedFile.name,
-      size: processedFile.size,
-      url,
-      storagePath,
-      contentType: processedFile.type || 'application/octet-stream',
+      name: (processedFile.name || 'file').slice(0, 200),
+      size: cleanSize,
+      url: url.slice(0, 2000),
+      storagePath: safeStoragePath,
+      contentType: (processedFile.type || 'application/octet-stream').slice(0, 120),
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

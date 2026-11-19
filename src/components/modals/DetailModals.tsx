@@ -497,7 +497,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 type="button"
                 disabled={busy}
                 onClick={async () => {
-                  await updateAllContributingParts({ notes: notesDraft.trim() });
+                  await updateAllContributingParts({ notes: notesDraft.trim().slice(0, 2000) });
                   pushToast('success', 'Notes saved.');
                   onClose();
                 }}
@@ -714,9 +714,9 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 await updateAllContributingParts({
                   status: 'Requested',
                   priority: priorityDraft,
-                  assignedMachinist: machinistDraft.trim(),
-                  sparesRequested: Math.max(0, Math.floor(sparesDraft)),
-                  notes: notesDraft.trim(),
+                  assignedMachinist: machinistDraft.trim().slice(0, 80),
+                  sparesRequested: Math.min(10000, Math.max(0, Math.floor(sparesDraft))),
+                  notes: notesDraft.trim().slice(0, 2000),
                 });
                 pushToast('success', 'Sent to Machining Manager.');
                 onClose();
@@ -794,9 +794,9 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               onClick={async () => {
                 await updateAllContributingParts({
                   status: 'Requested',
-                  vendorLink: linkDraft.trim(),
-                  sparesRequested: Math.max(0, Math.floor(sparesDraft)),
-                  notes: notesDraft.trim(),
+                  vendorLink: linkDraft.trim().slice(0, 1000),
+                  sparesRequested: Math.min(10000, Math.max(0, Math.floor(sparesDraft))),
+                  notes: notesDraft.trim().slice(0, 2000),
                 });
                 pushToast('success', 'Sent to Spending Manager.');
                 onClose();
@@ -893,9 +893,9 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 await updateAllContributingParts({
                   status: 'Requested',
                   priority: priorityDraft,
-                  vendorLink: linkDraft.trim(),
-                  sparesRequested: Math.max(0, Math.floor(sparesDraft)),
-                  notes: notesDraft.trim(),
+                  vendorLink: linkDraft.trim().slice(0, 1000),
+                  sparesRequested: Math.min(10000, Math.max(0, Math.floor(sparesDraft))),
+                  notes: notesDraft.trim().slice(0, 2000),
                 });
                 pushToast('success', 'Sent to Spending Manager.');
                 onClose();
@@ -969,7 +969,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 onClick={async () => {
                   const targetRef = part.sourceParts[0];
                   await updatePart(projectId, targetRef.subassemblyId, targetRef.part.id, {
-                    sparesCount: Math.max(0, Math.floor(sparesDraft)),
+                    sparesCount: Math.min(10000, Math.max(0, Math.floor(sparesDraft))),
                   });
                   pushToast('success', 'Spares quantity updated.');
                   onClose();
@@ -1087,17 +1087,17 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               disabled={busy}
               onClick={async () => {
                 const payload: Record<string, unknown> = {
-                  sparesRequested: Math.max(1, Math.floor(sparesDraft || 1)),
-                  notes: notesDraft.trim(),
+                  sparesRequested: Math.min(10000, Math.max(1, Math.floor(sparesDraft || 1))),
+                  notes: notesDraft.trim().slice(0, 2000),
                 };
                 if (isInHouse) {
-                  payload.assignedMachinist = machinistDraft.trim();
+                  payload.assignedMachinist = machinistDraft.trim().slice(0, 80);
                   payload.priority = priorityDraft;
                 } else if (isOutsourcedPaid) {
                   payload.priority = priorityDraft;
-                  payload.vendorLink = linkDraft.trim();
+                  payload.vendorLink = linkDraft.trim().slice(0, 1000);
                 } else if (isPurchased) {
-                  payload.vendorLink = linkDraft.trim();
+                  payload.vendorLink = linkDraft.trim().slice(0, 1000);
                 }
                 await updateAllContributingParts(payload);
                 pushToast(
@@ -1235,16 +1235,17 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               type="button"
               disabled={busy}
               onClick={async () => {
-                const total = Math.max(0, Math.floor(totalCountDraft));
-                const spares = Math.max(0, total - part.quantity);
+                const total = Math.min(100000, Math.max(0, Math.floor(totalCountDraft)));
+                const spares = Math.min(10000, Math.max(0, total - part.quantity));
                 const cleanNotes = machiningNotesDraft.trim().slice(0, 1000);
+                const cleanMachinesUsed = machinesUsedDraft.slice(0, 25).map((m) => m.slice(0, 60));
                 // Update contributing parts proportionally or on primary
                 setBusy(true);
                 try {
                   if (part.sourceParts.length === 1) {
                     const ref = part.sourceParts[0];
                     await updatePart(projectId, ref.subassemblyId, ref.part.id, {
-                      machinesUsed: machinesUsedDraft,
+                      machinesUsed: cleanMachinesUsed,
                       status: statusDraft,
                       totalMachined: total,
                       sparesCount: spares,
@@ -1375,10 +1376,13 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               type="button"
               disabled={busy}
               onClick={async () => {
-                const total = Math.max(0, Math.floor(totalCountDraft));
-                const spares = isInventorySparesOnly
-                  ? total
-                  : Math.max(0, total - part.quantity);
+                const total = Math.min(100000, Math.max(0, Math.floor(totalCountDraft)));
+                const spares = Math.min(
+                  10000,
+                  isInventorySparesOnly
+                    ? total
+                    : Math.max(0, total - part.quantity)
+                );
                 setBusy(true);
                 try {
                   if (part.sourceParts.length === 1) {
@@ -1394,10 +1398,13 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                       const ref = part.sourceParts[i];
                       const isLast = i === part.sourceParts.length - 1;
                       const requestedForRef = ref.part.sparesRequested || 0;
-                      const alloc = isLast
-                        ? remainingTotal
-                        : Math.min(remainingTotal, requestedForRef);
-                      remainingTotal -= alloc;
+                      const alloc = Math.min(
+                        10000,
+                        isLast
+                          ? remainingTotal
+                          : Math.min(remainingTotal, requestedForRef)
+                      );
+                      remainingTotal = Math.max(0, remainingTotal - alloc);
                       await updatePart(projectId, ref.subassemblyId, ref.part.id, {
                         status: statusDraft,
                         totalOrdered: alloc,
@@ -1413,7 +1420,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                         ? remainingTotal
                         : Math.min(remainingTotal, ref.part.quantity);
                       remainingTotal -= alloc;
-                      const subSpares = Math.max(0, alloc - ref.part.quantity);
+                      const subSpares = Math.min(10000, Math.max(0, alloc - ref.part.quantity));
                       await updatePart(projectId, ref.subassemblyId, ref.part.id, {
                         status: statusDraft,
                         totalOrdered: alloc,
