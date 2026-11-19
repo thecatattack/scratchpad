@@ -120,10 +120,14 @@ export function buildFlattenedMainParts(
     const assignedMachinist = Array.from(
       new Set(group.map((p) => p.assignedMachinist?.trim()).filter(Boolean))
     ).join(', ');
+    const revision = Array.from(
+      new Set(group.map((p) => p.revision?.trim()).filter(Boolean))
+    ).join(', ');
     const vendorLink = group.find((p) => p.vendorLink)?.vendorLink ?? '';
 
     aggregated.push({
       ...primary,
+      revision,
       quantity: totalQty,
       sparesRequested: totalSparesReq,
       sparesCount: totalSparesCount,

@@ -82,6 +82,7 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
       return (
         p.name.toLowerCase().includes(q) ||
         p.partNumber.toLowerCase().includes(q) ||
+        (p.type === 'Custom' && (p.revision || '').toLowerCase().includes(q)) ||
         p.vendor.toLowerCase().includes(q) ||
         p.manufacturer.toLowerCase().includes(q)
       );
@@ -292,6 +293,7 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
                       </h3>
                       <div className="text-xs font-mono-tabular text-zinc-500">
                         {p.partNumber}
+                        {p.type === 'Custom' && p.revision ? ` · Rev ${p.revision}` : ''}
                       </div>
                     </div>
                     <StatusLabel

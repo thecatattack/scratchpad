@@ -103,6 +103,10 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
   if (!modal) return null;
 
   const part = modal.part;
+  const partTag =
+    part.type === 'Custom' && part.revision
+      ? `${part.partNumber} (Rev ${part.revision})`
+      : part.partNumber;
 
   const updateAllContributingParts = async (
     partial: Record<string, unknown>
@@ -137,7 +141,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Assigned Shop Machines"
-        subtitle={`${part.partNumber} · ${part.name}`}
+        subtitle={`${partTag} · ${part.name}`}
         maxWidth="sm"
       >
         {part.machines.length === 0 ? (
@@ -172,7 +176,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Outsourced Manufacturer"
-        subtitle={`${part.partNumber} · ${part.name}`}
+        subtitle={`${partTag} · ${part.name}`}
         maxWidth="sm"
       >
         <div className="space-y-3 text-sm">
@@ -202,7 +206,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Material & Stock Dimensions"
-        subtitle={`${part.partNumber} · ${part.name}`}
+        subtitle={`${partTag} · ${part.name}`}
         maxWidth="sm"
       >
         <div className="space-y-3 text-sm">
@@ -325,7 +329,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Attached Files"
-        subtitle={`${part.partNumber} · ${part.name}`}
+        subtitle={`${partTag} · ${part.name}`}
         maxWidth="lg"
       >
         <div className="space-y-4">
@@ -473,7 +477,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Part Notes"
-        subtitle={`${part.partNumber} · ${part.name}`}
+        subtitle={`${partTag} · ${part.name}`}
         maxWidth="md"
       >
         {modal.canEdit ? (
@@ -548,7 +552,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Drawing PDF"
-        subtitle={`${part.partNumber} · ${part.name}`}
+        subtitle={`${partTag} · ${part.name}`}
         maxWidth="3xl"
       >
         <div className="space-y-4">
@@ -639,7 +643,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Request Machining"
-        subtitle={`${part.partNumber} · ${part.name}`}
+        subtitle={`${partTag} · ${part.name}`}
         maxWidth="md"
       >
         <div className="space-y-4">
@@ -738,7 +742,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Request COTS Purchase"
-        subtitle={`${part.partNumber} · ${part.name}`}
+        subtitle={`${partTag} · ${part.name}`}
         maxWidth="md"
       >
         <div className="space-y-4">
@@ -755,17 +759,36 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-              Spares Needed
-            </label>
-            <input
-              type="number"
-              min={0}
-              value={sparesDraft}
-              onChange={(e) => setSparesDraft(Math.max(0, Number(e.target.value)))}
-              className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Priority
+              </label>
+              <select
+                value={priorityDraft}
+                onChange={(e) => setPriorityDraft(e.target.value as PartPriority)}
+                className="w-full px-3 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
+              >
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Spares Needed
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={sparesDraft}
+                onChange={(e) => setSparesDraft(Math.max(0, Number(e.target.value)))}
+                className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -794,6 +817,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
               onClick={async () => {
                 await updateAllContributingParts({
                   status: 'Requested',
+                  priority: priorityDraft,
                   vendorLink: linkDraft.trim().slice(0, 1000),
                   sparesRequested: Math.min(10000, Math.max(0, Math.floor(sparesDraft))),
                   notes: notesDraft.trim().slice(0, 2000),
@@ -818,7 +842,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Request Outsourced Order"
-        subtitle={`${part.partNumber} · ${part.manufacturer}`}
+        subtitle={`${partTag} · ${part.manufacturer}`}
         maxWidth="md"
       >
         <div className="space-y-4">
@@ -922,7 +946,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Edit Spare Parts"
-        subtitle={`${part.partNumber} · ${part.name}`}
+        subtitle={`${partTag} · ${part.name}`}
         maxWidth="sm"
       >
         <div className="space-y-4">
@@ -996,7 +1020,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Request More Spares"
-        subtitle={`${part.partNumber} · Status remains "${part.status}"`}
+        subtitle={`${partTag} · Status remains "${part.status}"`}
         maxWidth="md"
       >
         <div className="space-y-4">
@@ -1014,7 +1038,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             </div>
           ) : null}
 
-          {isInHouse || isOutsourcedPaid ? (
+          {isInHouse || isPurchased || isOutsourcedPaid ? (
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                 Priority of Spares
@@ -1097,6 +1121,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                   payload.priority = priorityDraft;
                   payload.vendorLink = linkDraft.trim().slice(0, 1000);
                 } else if (isPurchased) {
+                  payload.priority = priorityDraft;
                   payload.vendorLink = linkDraft.trim().slice(0, 1000);
                 }
                 await updateAllContributingParts(payload);
@@ -1129,7 +1154,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="Log Machining Progress"
-        subtitle={`${part.partNumber} · ${part.name} (BOM Qty: ${part.quantity})`}
+        subtitle={`${partTag} · ${part.name} (BOM Qty: ${part.quantity})`}
         maxWidth="md"
       >
         <div className="space-y-4">
@@ -1298,8 +1323,8 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         title="Approve & Update Order"
         subtitle={
           isInventorySparesOnly
-            ? `${part.partNumber} · ${part.name} (${part.quantity} In Inventory · ${part.sparesRequested} Spares Req)`
-            : `${part.partNumber} · ${part.name} (BOM Qty: ${part.quantity})`
+            ? `${partTag} · ${part.name} (${part.quantity} In Inventory · ${part.sparesRequested} Spares Req)`
+            : `${partTag} · ${part.name} (BOM Qty: ${part.quantity})`
         }
         maxWidth="md"
       >
@@ -1466,7 +1491,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         open
         onClose={onClose}
         title="In-Progress Machining Update"
-        subtitle={`${part.partNumber} · ${part.name}`}
+        subtitle={`${partTag} · ${part.name}`}
         maxWidth="md"
       >
         <div className="space-y-4 text-sm">

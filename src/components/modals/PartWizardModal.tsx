@@ -13,7 +13,9 @@ import {
   FILAMENT_MATERIALS,
   MaterialCategory,
   OUTSOURCED_MANUFACTURERS,
+  PRIORITIES,
   Part,
+  PartPriority,
   PartSource,
   PartType,
   RESIN_MATERIALS,
@@ -59,6 +61,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
   // Step 1: Core identity + optional picture
   const [name, setName] = useState('');
   const [partNumber, setPartNumber] = useState('');
+  const [revision, setRevision] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [pictureUrl, setPictureUrl] = useState('');
   const [pictureFile, setPictureFile] = useState<File | null>(null);
@@ -91,7 +94,8 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
   const [hasIdentical, setHasIdentical] = useState(false);
   const [identicalPartId, setIdenticalPartId] = useState('');
 
-  // Step 4: Notes
+  // Step 4: Priority & Notes
+  const [priority, setPriority] = useState<PartPriority>('Regular Priority');
   const [notes, setNotes] = useState('');
 
   const resetForm = () => {
@@ -99,6 +103,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
     setErrorMsg('');
     setName('');
     setPartNumber('');
+    setRevision('');
     setQuantity(1);
     setPictureUrl('');
     setPictureFile(null);
@@ -126,6 +131,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
     setNewAttachmentFiles([]);
     setHasIdentical(false);
     setIdenticalPartId('');
+    setPriority('Regular Priority');
     setNotes('');
   };
 
@@ -136,6 +142,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
       setErrorMsg('');
       setName(editingPart.name);
       setPartNumber(editingPart.partNumber);
+      setRevision(editingPart.revision || '');
       setQuantity(editingPart.quantity);
       setPictureUrl(editingPart.pictureUrl || '');
       setPictureFile(null);
@@ -206,6 +213,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
       setNewAttachmentFiles([]);
       setHasIdentical(Boolean(editingPart.identicalGroupId));
       setIdenticalPartId('');
+      setPriority(editingPart.priority || 'Regular Priority');
       setNotes(editingPart.notes || '');
     } else {
       resetForm();
@@ -256,6 +264,9 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
     setDimensions(match.dimensions || {});
     if (match.drawingPdf && !drawingPdf && !drawingPdfFile) {
       setDrawingPdf(match.drawingPdf);
+    }
+    if (!revision.trim() && match.revision) {
+      setRevision(match.revision);
     }
     if (!notes && match.notes) {
       setNotes(match.notes);
@@ -511,6 +522,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
       const basePayload = {
         name: name.trim().slice(0, 120),
         partNumber: partNumber.trim().slice(0, 60),
+        revision: pathway === 'COTS' ? '' : revision.trim().slice(0, 20),
         quantity: totalQty,
         type,
         source,
@@ -541,7 +553,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           pathway === 'COTS' && cotsPathway === 'Inventory'
             ? ('Obtained' as const)
             : ('Not Started' as const),
-        priority: 'Regular Priority' as const,
+        priority,
         assignedMachinist: '',
         vendorLink: '',
         sparesRequested: 0,
@@ -736,7 +748,11 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
               {name.trim() || 'Untitled Part'}
             </div>
             <div className="text-xs font-mono-tabular text-zinc-500 dark:text-zinc-400">
-              {partNumber.trim() || 'PN-TBD'} · Qty {quantity} · {pathway}
+              {partNumber.trim() || 'PN-TBD'}
+              {pathway !== 'COTS' && revision.trim()
+                ? ` · Rev ${revision.trim()}`
+                : ''}{' '}
+              · Qty {quantity} · {pathway}
             </div>
           </div>
         </div>
@@ -744,8 +760,8 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         {/* STEP 1: Identity & Optional Picture */}
         {step === 1 ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+              <div className="sm:col-span-5 space-y-1.5">
                 <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Part Name
                 </label>
@@ -758,7 +774,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
                 />
               </div>
 
-              <div className="space-y-1.5">
+              <div className="sm:col-span-4 space-y-1.5">
                 <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Part Number
                 </label>
@@ -767,6 +783,21 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
                   value={partNumber}
                   onChange={(e) => setPartNumber(e.target.value)}
                   placeholder="e.g., 451-SHT-001"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
+                />
+              </div>
+
+              <div className="sm:col-span-3 space-y-1.5">
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Revision (Optional)
+                </label>
+                <input
+                  type="text"
+                  maxLength={20}
+                  value={revision}
+                  onChange={(e) => setRevision(e.target.value)}
+                  placeholder="e.g., A"
+                  title="Optional revision (displayed for Custom parts)"
                   className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
                 />
               </div>
@@ -1430,19 +1461,38 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           </div>
         ) : null}
 
-        {/* STEP 4: Optional Note */}
+        {/* STEP 4: Priority & Optional Note */}
         {step === 4 ? (
-          <div className="space-y-3">
-            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-              Optional Note for this Part
-            </label>
-            <textarea
-              rows={4}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Add fabrication tips, tolerances, hardware sizes, or ordering notes..."
-              className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
-            />
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Part Priority
+              </label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as PartPriority)}
+                className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
+              >
+                {PRIORITIES.map((pr) => (
+                  <option key={pr} value={pr}>
+                    {pr}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Optional Note for this Part
+              </label>
+              <textarea
+                rows={4}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add fabrication tips, tolerances, hardware sizes, or ordering notes..."
+                className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
+              />
+            </div>
           </div>
         ) : null}
 

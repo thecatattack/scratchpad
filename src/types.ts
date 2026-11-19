@@ -147,6 +147,7 @@ export interface Part {
   teamCode: 'FRC451';
   name: string;
   partNumber: string;
+  revision?: string;
   quantity: number;
   type: PartType;
   source: PartSource;

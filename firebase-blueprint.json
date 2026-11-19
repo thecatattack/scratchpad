@@ -190,6 +190,10 @@
           "minLength": 1,
           "maxLength": 60
         },
+        "revision": {
+          "type": "string",
+          "maxLength": 20
+        },
         "quantity": {
           "type": "integer"
         },

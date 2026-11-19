@@ -73,6 +73,7 @@ export const MachiningManagerView: React.FC<MachiningManagerViewProps> = ({
       return (
         p.name.toLowerCase().includes(q) ||
         p.partNumber.toLowerCase().includes(q) ||
+        (p.revision || '').toLowerCase().includes(q) ||
         p.machines.some((m) => m.toLowerCase().includes(q)) ||
         p.assignedMachinist.toLowerCase().includes(q)
       );
@@ -153,6 +154,7 @@ export const MachiningManagerView: React.FC<MachiningManagerViewProps> = ({
             </h3>
             <div className="text-xs font-mono-tabular text-zinc-500 dark:text-zinc-400">
               {p.partNumber}
+              {p.type === 'Custom' && p.revision ? ` · Rev ${p.revision}` : ''}
             </div>
           </div>
           <StatusLabel status={p.status} />

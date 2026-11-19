@@ -129,7 +129,7 @@ service cloud.firestore {
           'totalMachined', 'totalOrdered', 'machinesUsed', 'createdBy', 'createdAt', 'updatedAt'
         ])
         && data.keys().hasOnly([
-          'projectId', 'subassemblyId', 'teamCode', 'name', 'partNumber', 'quantity',
+          'projectId', 'subassemblyId', 'teamCode', 'name', 'partNumber', 'revision', 'quantity',
           'type', 'source', 'vendor', 'manufacturer', 'costsMoney', 'machines',
           'materialCategory', 'materialName', 'stockShape', 'dimensions', 'pictureUrl',
           'drawingPdf', 'attachedFiles', 'identicalGroupId', 'notes', 'status',
@@ -142,6 +142,7 @@ service cloud.firestore {
         && data.teamCode == 'FRC451'
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
         && data.partNumber is string && data.partNumber.size() >= 1 && data.partNumber.size() <= 60
+        && (!('revision' in data) || (data.revision is string && data.revision.size() <= 20))
         && data.quantity is int && data.quantity >= 1 && data.quantity <= 100000
         && data.type in ['Custom', 'COTS']
         && data.source in ['In-House', 'Outsourced', 'Purchased', 'Inventory']
@@ -296,7 +297,7 @@ service cloud.firestore {
               isAdmin()
               // Action 1: Full Parts Manager property re-edit (resets workflow fields)
               || incoming().diff(existing()).affectedKeys().hasOnly([
-                'name', 'partNumber', 'quantity', 'type', 'source', 'vendor', 'manufacturer',
+                'name', 'partNumber', 'revision', 'quantity', 'type', 'source', 'vendor', 'manufacturer',
                 'costsMoney', 'machines', 'materialCategory', 'materialName', 'stockShape',
                 'dimensions', 'pictureUrl', 'drawingPdf', 'attachedFiles', 'identicalGroupId',
                 'notes', 'status', 'priority', 'assignedMachinist', 'vendorLink',

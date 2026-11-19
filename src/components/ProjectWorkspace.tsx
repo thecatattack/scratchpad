@@ -20,7 +20,9 @@ import {
 import { useApp, useProjectDetails } from '../context/AppContext';
 import {
   AggregatedPart,
+  PRIORITIES,
   Part,
+  PartPriority,
   PartStatus,
   Project,
   ProjectTab,
@@ -88,6 +90,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const [sourceFilter, setSourceFilter] = useState<
     'ALL' | 'In-House' | 'Outsourced' | 'Purchased' | 'Inventory'
   >('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | PartStatus>('ALL');
 
   // Wizard & Detail modals
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -135,6 +138,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
     return (
       p.name.toLowerCase().includes(q) ||
       p.partNumber.toLowerCase().includes(q) ||
+      (p.type === 'Custom' && (p.revision || '').toLowerCase().includes(q)) ||
       p.materialName.toLowerCase().includes(q) ||
       p.vendor.toLowerCase().includes(q) ||
       p.manufacturer.toLowerCase().includes(q)
@@ -147,31 +151,43 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
         if (!matchesSearch(p)) return false;
         if (typeFilter !== 'ALL' && p.type !== typeFilter) return false;
         if (sourceFilter !== 'ALL' && p.source !== sourceFilter) return false;
+        if (statusFilter !== 'ALL' && p.status !== statusFilter) return false;
         return true;
       }),
-    [displayParts, searchQuery, typeFilter, sourceFilter]
+    [displayParts, searchQuery, typeFilter, sourceFilter, statusFilter]
   );
 
   const inHouseParts = useMemo(
     () =>
-      displayParts.filter(
-        (p) => p.source === 'In-House' && matchesSearch(p)
-      ),
-    [displayParts, searchQuery]
+      displayParts.filter((p) => {
+        if (p.source !== 'In-House') return false;
+        if (!matchesSearch(p)) return false;
+        if (statusFilter !== 'ALL' && p.status !== statusFilter) return false;
+        return true;
+      }),
+    [displayParts, searchQuery, statusFilter]
   );
 
   const purchasedParts = useMemo(
     () =>
-      displayParts.filter((p) => p.type === 'COTS' && matchesSearch(p)),
-    [displayParts, searchQuery]
+      displayParts.filter((p) => {
+        if (p.type !== 'COTS') return false;
+        if (!matchesSearch(p)) return false;
+        if (statusFilter !== 'ALL' && p.status !== statusFilter) return false;
+        return true;
+      }),
+    [displayParts, searchQuery, statusFilter]
   );
 
   const outsourcedParts = useMemo(
     () =>
-      displayParts.filter(
-        (p) => p.source === 'Outsourced' && matchesSearch(p)
-      ),
-    [displayParts, searchQuery]
+      displayParts.filter((p) => {
+        if (p.source !== 'Outsourced') return false;
+        if (!matchesSearch(p)) return false;
+        if (statusFilter !== 'ALL' && p.status !== statusFilter) return false;
+        return true;
+      }),
+    [displayParts, searchQuery, statusFilter]
   );
 
   const spareParts = useMemo(
@@ -181,9 +197,10 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
         if (!matchesSearch(p)) return false;
         if (typeFilter !== 'ALL' && p.type !== typeFilter) return false;
         if (sourceFilter !== 'ALL' && p.source !== sourceFilter) return false;
+        if (statusFilter !== 'ALL' && p.status !== statusFilter) return false;
         return true;
       }),
-    [displayParts, searchQuery, typeFilter, sourceFilter]
+    [displayParts, searchQuery, typeFilter, sourceFilter, statusFilter]
   );
 
   const handleOpenProject = (proj: Project) => {
@@ -535,7 +552,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                           {p.name}
                         </div>
                         <div className="text-xs font-mono-tabular text-zinc-500">
-                          {p.partNumber} · Qty {p.quantity}
+                          {p.partNumber}
+                          {p.type === 'Custom' && p.revision ? ` · Rev ${p.revision}` : ''}{' '}
+                          · Qty {p.quantity}
                         </div>
                       </div>
                       {p.type === 'Custom' &&
@@ -556,16 +575,19 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         </button>
                       ) : null}
                     </div>
-                    <div className="text-xs text-zinc-600 dark:text-zinc-400">
-                      {p.source === 'In-House'
-                        ? p.machines.join(', ') || 'In-House'
-                        : p.type === 'COTS'
-                        ? `${p.vendor} · ${p.source}${
-                            p.sparesRequested > 0
-                              ? ` (${p.sparesRequested} spares req)`
-                              : ''
-                          }`
-                        : p.manufacturer}
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                      <span className="truncate">
+                        {p.source === 'In-House'
+                          ? p.machines.join(', ') || 'In-House'
+                          : p.type === 'COTS'
+                          ? `${p.vendor} · ${p.source}${
+                              p.sparesRequested > 0
+                                ? ` (${p.sparesRequested} spares req)`
+                                : ''
+                            }`
+                          : p.manufacturer}
+                      </span>
+                      {renderPriorityCell(p, true)}
                     </div>
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
                       <div className="flex items-center gap-1">
@@ -689,6 +711,60 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       );
     }
     return <StatusLabel status={p.status} />;
+  };
+
+  const handlePriorityChange = async (
+    p: AggregatedPart,
+    nextPriority: PartPriority
+  ) => {
+    try {
+      await Promise.all(
+        p.sourceParts.map((ref) =>
+          updatePart(selectedProject.id, ref.subassemblyId, ref.part.id, {
+            priority: nextPriority,
+          })
+        )
+      );
+      pushToast('success', `Updated priority for "${p.name}" to ${nextPriority}.`);
+    } catch (err) {
+      pushToast(
+        'error',
+        err instanceof Error ? err.message : 'Failed to update priority.'
+      );
+    }
+  };
+
+  const renderPriorityCell = (p: AggregatedPart, compact = false) => {
+    if (!editable) {
+      return <PriorityLabel priority={p.priority} />;
+    }
+    const colorClass =
+      p.priority === 'Critical Priority'
+        ? 'text-red-600 dark:text-red-400 border-red-500/40'
+        : p.priority === 'High Priority'
+        ? 'text-amber-600 dark:text-amber-400 border-amber-500/40'
+        : p.priority === 'Regular Priority'
+        ? 'text-sky-600 dark:text-sky-400 border-sky-500/30'
+        : 'text-zinc-500 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700';
+
+    return (
+      <select
+        aria-label={`Priority for ${p.name}`}
+        value={p.priority}
+        onChange={(e) =>
+          void handlePriorityChange(p, e.target.value as PartPriority)
+        }
+        className={`rounded border bg-white dark:bg-[#09090B] font-semibold cursor-pointer ${colorClass} ${
+          compact ? 'px-1.5 py-0.5 text-[11px]' : 'px-2 py-1 text-xs'
+        }`}
+      >
+        {PRIORITIES.map((pr) => (
+          <option key={pr} value={pr}>
+            {pr}
+          </option>
+        ))}
+      </select>
+    );
   };
 
   const handleUnsendRequest = async (p: AggregatedPart) => {
@@ -1023,6 +1099,26 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                 </select>
               </>
             ) : null}
+
+            <select
+              aria-label="Filter by status"
+              value={statusFilter}
+              onChange={(e) =>
+                setStatusFilter(e.target.value as 'ALL' | PartStatus)
+              }
+              className="px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317] text-xs font-medium"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="Not Started">Not Started</option>
+              <option value="Requested">Requested</option>
+              <option value="Needs Drawing">Needs Drawing</option>
+              <option value="Needs CAM">Needs CAM</option>
+              <option value="Ready for Machine">Ready for Machine</option>
+              <option value="In-Progress">In-Progress</option>
+              <option value="Shipping">Shipping</option>
+              <option value="Denied">Denied</option>
+              <option value="Obtained">Obtained</option>
+            </select>
           </div>
 
           {activeTab === 'in-house' ||
@@ -1089,10 +1185,12 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                   <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400">
                     <th className="py-3 px-4 font-semibold">Part Name</th>
                     <th className="py-3 px-3 font-semibold">Part Number</th>
+                    <th className="py-3 px-3 font-semibold">Rev</th>
                     <th className="py-3 px-3 font-semibold text-right">Qty</th>
                     <th className="py-3 px-3 font-semibold">Type</th>
                     <th className="py-3 px-3 font-semibold">Source</th>
                     <th className="py-3 px-3 font-semibold">Material / Vendor</th>
+                    <th className="py-3 px-3 font-semibold">Priority</th>
                     <th className="py-3 px-3 font-semibold">Status</th>
                     <th className="py-3 px-3 font-semibold">Files</th>
                     <th className="py-3 px-4 font-semibold text-right">Actions</th>
@@ -1110,6 +1208,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       <td className="py-2.5 px-3 font-mono-tabular text-zinc-600 dark:text-zinc-300">
                         {p.partNumber}
                       </td>
+                      <td className="py-2.5 px-3 font-mono-tabular text-zinc-600 dark:text-zinc-300">
+                        {p.type === 'Custom' ? p.revision || '—' : '—'}
+                      </td>
                       <td className="py-2.5 px-3 font-mono-tabular text-right font-semibold">
                         {p.quantity}
                       </td>
@@ -1117,6 +1218,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       <td className="py-2.5 px-3">{renderSourceCell(p)}</td>
                       <td className="py-2.5 px-3">
                         {renderMaterialOrVendorCell(p)}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        {renderPriorityCell(p)}
                       </td>
                       <td className="py-2.5 px-3">
                         {renderStatusCell(p)}
@@ -1234,6 +1338,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                     <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500">
                       <th className="py-3 px-4 font-semibold">Part Name</th>
                       <th className="py-3 px-3 font-semibold">Part Number</th>
+                      <th className="py-3 px-3 font-semibold">Rev</th>
                       <th className="py-3 px-3 font-semibold text-right">Qty</th>
                       <th className="py-3 px-3 font-semibold">Material</th>
                       <th className="py-3 px-3 font-semibold">Machines</th>
@@ -1252,6 +1357,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         <td className="py-2.5 px-3 font-mono-tabular">
                           {p.partNumber}
                         </td>
+                        <td className="py-2.5 px-3 font-mono-tabular text-zinc-600 dark:text-zinc-300">
+                          {p.revision || '—'}
+                        </td>
                         <td className="py-2.5 px-3 font-mono-tabular text-right font-semibold">
                           {p.quantity}
                         </td>
@@ -1262,7 +1370,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                           {p.machines.join(', ') || '—'}
                         </td>
                         <td className="py-2.5 px-3">
-                          <PriorityLabel priority={p.priority} />
+                          {renderPriorityCell(p)}
                         </td>
                         <td className="py-2.5 px-3">
                           {renderStatusCell(p)}
@@ -1352,6 +1460,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       <th className="py-3 px-3 font-semibold text-right">Qty</th>
                       <th className="py-3 px-3 font-semibold">Source</th>
                       <th className="py-3 px-3 font-semibold">Vendor</th>
+                      <th className="py-3 px-3 font-semibold">Priority</th>
                       <th className="py-3 px-3 font-semibold">Status</th>
                       <th className="py-3 px-4 font-semibold text-right">Actions</th>
                     </tr>
@@ -1376,6 +1485,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         </td>
                         <td className="py-2.5 px-3">{p.source}</td>
                         <td className="py-2.5 px-3">{p.vendor || '—'}</td>
+                        <td className="py-2.5 px-3">
+                          {renderPriorityCell(p)}
+                        </td>
                         <td className="py-2.5 px-3">
                           <StatusLabel status={p.status} />
                         </td>
@@ -1478,10 +1590,12 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                     <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500">
                       <th className="py-3 px-4 font-semibold">Part Name</th>
                       <th className="py-3 px-3 font-semibold">Part Number</th>
+                      <th className="py-3 px-3 font-semibold">Rev</th>
                       <th className="py-3 px-3 font-semibold text-right">Qty</th>
                       <th className="py-3 px-3 font-semibold">Material</th>
                       <th className="py-3 px-3 font-semibold">Pathway</th>
                       <th className="py-3 px-3 font-semibold">Files</th>
+                      <th className="py-3 px-3 font-semibold">Priority</th>
                       <th className="py-3 px-3 font-semibold">Status</th>
                       <th className="py-3 px-4 font-semibold text-right">Actions</th>
                     </tr>
@@ -1495,6 +1609,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         <td className="py-2.5 px-4 font-semibold">{p.name}</td>
                         <td className="py-2.5 px-3 font-mono-tabular">
                           {p.partNumber}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono-tabular text-zinc-600 dark:text-zinc-300">
+                          {p.revision || '—'}
                         </td>
                         <td className="py-2.5 px-3 font-mono-tabular text-right font-semibold">
                           {p.quantity}
@@ -1521,6 +1638,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                             <Paperclip className="w-3 h-3" />
                             <span>Files ({p.attachedFiles.length})</span>
                           </button>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {renderPriorityCell(p)}
                         </td>
                         <td className="py-2.5 px-3">
                           {editable &&
@@ -1618,6 +1738,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                   <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500">
                     <th className="py-3 px-4 font-semibold">Part Name</th>
                     <th className="py-3 px-3 font-semibold">Part Number</th>
+                    <th className="py-3 px-3 font-semibold">Rev</th>
                     <th className="py-3 px-3 font-semibold text-right">
                       Qty of Spares
                     </th>
@@ -1637,6 +1758,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       <td className="py-2.5 px-4 font-semibold">{p.name}</td>
                       <td className="py-2.5 px-3 font-mono-tabular">
                         {p.partNumber}
+                      </td>
+                      <td className="py-2.5 px-3 font-mono-tabular text-zinc-600 dark:text-zinc-300">
+                        {p.type === 'Custom' ? p.revision || '—' : '—'}
                       </td>
                       <td className="py-2.5 px-3 font-mono-tabular text-right font-bold text-emerald-600 dark:text-emerald-400">
                         {p.sparesCount}
@@ -1776,7 +1900,11 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
         title="Delete Part"
         subtitle={
           confirmDeletePart
-            ? `${confirmDeletePart.partNumber} · ${confirmDeletePart.name}`
+            ? `${confirmDeletePart.partNumber}${
+                confirmDeletePart.type === 'Custom' && confirmDeletePart.revision
+                  ? ` (Rev ${confirmDeletePart.revision})`
+                  : ''
+              } · ${confirmDeletePart.name}`
             : ''
         }
         maxWidth="sm"
