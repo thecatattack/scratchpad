@@ -14,6 +14,7 @@ import {
   StickyNote,
   Table2,
   Trash2,
+  Undo2,
   Upload,
 } from 'lucide-react';
 import { useApp, useProjectDetails } from '../context/AppContext';
@@ -686,6 +687,70 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
     return <StatusLabel status={p.status} />;
   };
 
+  const handleUnsendRequest = async (p: AggregatedPart) => {
+    try {
+      await Promise.all(
+        p.sourceParts.map((ref) =>
+          updatePart(selectedProject.id, ref.subassemblyId, ref.part.id, {
+            status: 'Not Started',
+            sparesRequested: 0,
+          })
+        )
+      );
+      pushToast('info', `Request unsent for "${p.name}".`);
+    } catch (err) {
+      pushToast(
+        'error',
+        err instanceof Error ? err.message : 'Failed to unsend request.'
+      );
+    }
+  };
+
+  const renderRequestOrUnsendAction = (
+    p: AggregatedPart,
+    modalType: 'request-in-house' | 'request-purchased' | 'request-outsourced',
+    compact = false
+  ) => {
+    if (p.status === 'Requested') {
+      return (
+        <button
+          type="button"
+          onClick={() => void handleUnsendRequest(p)}
+          title="Withdraw request back to Not Started"
+          className={`inline-flex items-center gap-1 rounded-lg border border-amber-500/60 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-semibold whitespace-nowrap transition-all active:scale-[0.98] ${
+            compact ? 'px-2.5 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
+          }`}
+        >
+          <Undo2 className="w-3 h-3" />
+          <span>Unsend</span>
+        </button>
+      );
+    }
+
+    if (p.status === 'Not Started' || p.status === 'Denied') {
+      return (
+        <button
+          type="button"
+          onClick={() => setDetailModal({ type: modalType, part: p })}
+          className={`inline-flex items-center gap-1 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold whitespace-nowrap transition-all active:scale-[0.98] ${
+            compact ? 'px-2.5 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
+          }`}
+        >
+          <Send className="w-3 h-3" />
+          <span>Request</span>
+        </button>
+      );
+    }
+
+    if (compact) return null;
+
+    return (
+      <span className="inline-flex items-center px-2 py-1 text-[11px] font-medium text-zinc-400 dark:text-zinc-500 whitespace-nowrap">
+        {p.status}
+      </span>
+    );
+  };
+
   return (
     <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-6 flex flex-col lg:flex-row gap-6">
       {/* Left Sidebar: Project + Subassemblies */}
@@ -1102,18 +1167,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
               inHouseParts,
               ['Not Started', 'Requested', 'In-Progress', 'Obtained'],
               editable
-                ? (p) => (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDetailModal({ type: 'request-in-house', part: p })
-                      }
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold"
-                    >
-                      <Send className="w-3 h-3" />
-                      <span>Request</span>
-                    </button>
-                  )
+                ? (p) => renderRequestOrUnsendAction(p, 'request-in-house', true)
                 : undefined
             )
           ) : (
@@ -1205,21 +1259,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                             >
                               <FileText className="w-4 h-4" />
                             </button>
-                            {editable ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDetailModal({
-                                    type: 'request-in-house',
-                                    part: p,
-                                  })
-                                }
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold whitespace-nowrap"
-                              >
-                                <Send className="w-3 h-3" />
-                                <span>Request</span>
-                              </button>
-                            ) : null}
+                            {editable
+                              ? renderRequestOrUnsendAction(p, 'request-in-house')
+                              : null}
                           </div>
                         </td>
                       </tr>
@@ -1238,18 +1280,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
               purchasedParts,
               ['Not Started', 'Requested', 'Shipping', 'Obtained'],
               editable
-                ? (p) => (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDetailModal({ type: 'request-purchased', part: p })
-                      }
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold"
-                    >
-                      <Send className="w-3 h-3" />
-                      <span>Request</span>
-                    </button>
-                  )
+                ? (p) => renderRequestOrUnsendAction(p, 'request-purchased', true)
                 : undefined
             )
           ) : (
@@ -1303,21 +1334,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                             >
                               <StickyNote className="w-4 h-4" />
                             </button>
-                            {editable ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDetailModal({
-                                    type: 'request-purchased',
-                                    part: p,
-                                  })
-                                }
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold whitespace-nowrap"
-                              >
-                                <Send className="w-3 h-3" />
-                                <span>Request</span>
-                              </button>
-                            ) : null}
+                            {editable
+                              ? renderRequestOrUnsendAction(p, 'request-purchased')
+                              : null}
                           </div>
                         </td>
                       </tr>
@@ -1338,19 +1357,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
               editable
                 ? (p) =>
                     p.costsMoney ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDetailModal({
-                            type: 'request-outsourced',
-                            part: p,
-                          })
-                        }
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold"
-                      >
-                        <Send className="w-3 h-3" />
-                        <span>Request</span>
-                      </button>
+                      renderRequestOrUnsendAction(p, 'request-outsourced', true)
                     ) : (
                       <select
                         value={p.status}
@@ -1487,21 +1494,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                             >
                               <FileText className="w-4 h-4" />
                             </button>
-                            {editable && p.costsMoney ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDetailModal({
-                                    type: 'request-outsourced',
-                                    part: p,
-                                  })
-                                }
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold whitespace-nowrap"
-                              >
-                                <Send className="w-3 h-3" />
-                                <span>Request</span>
-                              </button>
-                            ) : null}
+                            {editable && p.costsMoney
+                              ? renderRequestOrUnsendAction(p, 'request-outsourced')
+                              : null}
                           </div>
                         </td>
                       </tr>
