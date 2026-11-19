@@ -117,6 +117,46 @@ function makeId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${rand}`;
 }
 
+function safeSessionGet(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSessionSet(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    // Ignore storage restriction errors
+  }
+}
+
+function safeSessionRemove(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // Ignore storage restriction errors
+  }
+}
+
+function safeLocalGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeLocalSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage restriction errors
+  }
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
@@ -124,19 +164,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [authReady, setAuthReady] = useState(false);
 
   const [teamUnlocked, setTeamUnlocked] = useState<boolean>(
-    () => sessionStorage.getItem('ca451_team_unlocked') === 'true'
+    () => safeSessionGet('ca451_team_unlocked') === 'true'
   );
   const [adminUnlocked, setAdminUnlocked] = useState<boolean>(
-    () => sessionStorage.getItem('ca451_admin_unlocked') === 'true'
+    () => safeSessionGet('ca451_admin_unlocked') === 'true'
   );
   const [spendingUnlocked, setSpendingUnlocked] = useState<boolean>(
-    () => sessionStorage.getItem('ca451_spending_unlocked') === 'true'
+    () => safeSessionGet('ca451_spending_unlocked') === 'true'
   );
   const [unlockedProjectIds, setUnlockedProjectIds] = useState<
     Record<string, boolean>
   >(() => {
     try {
-      const raw = sessionStorage.getItem('ca451_unlocked_projects');
+      const raw = safeSessionGet('ca451_unlocked_projects');
       return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
     } catch {
       return {};
@@ -144,7 +184,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   });
 
   const [darkMode, setDarkMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('ca451_theme');
+    const saved = safeLocalGet('ca451_theme');
     return saved ? saved === 'dark' : true;
   });
 
@@ -172,7 +212,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   // Sync dark mode class on <html>
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
-    localStorage.setItem('ca451_theme', darkMode ? 'dark' : 'light');
+    safeLocalSet('ca451_theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
 
   const toggleDarkMode = useCallback(() => {
@@ -278,6 +318,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       await signInWithPopup(auth, googleProvider);
       pushToast('success', 'Signed in with Google.');
     } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'auth/unauthorized-domain') {
+        const host = window.location.hostname || 'this domain';
+        pushToast(
+          'error',
+          `Add "${host}" to Firebase Console -> Authentication -> Settings -> Authorized domains to allow Google Sign-In here.`
+        );
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Sign-in failed.';
       pushToast('error', msg);
     }
@@ -285,10 +334,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const signOutUser = useCallback(async () => {
     await signOut(auth);
-    sessionStorage.removeItem('ca451_team_unlocked');
-    sessionStorage.removeItem('ca451_admin_unlocked');
-    sessionStorage.removeItem('ca451_spending_unlocked');
-    sessionStorage.removeItem('ca451_unlocked_projects');
+    safeSessionRemove('ca451_team_unlocked');
+    safeSessionRemove('ca451_admin_unlocked');
+    safeSessionRemove('ca451_spending_unlocked');
+    safeSessionRemove('ca451_unlocked_projects');
     setTeamUnlocked(false);
     setAdminUnlocked(false);
     setSpendingUnlocked(false);
@@ -297,7 +346,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const unlockTeam = useCallback((passkey: string) => {
     if (passkey.trim() === TEAM_PASSKEY) {
-      sessionStorage.setItem('ca451_team_unlocked', 'true');
+      safeSessionSet('ca451_team_unlocked', 'true');
       setTeamUnlocked(true);
       return true;
     }
@@ -306,7 +355,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const unlockAdmin = useCallback((passkey: string) => {
     if (passkey.trim() === ADMIN_PASSKEY) {
-      sessionStorage.setItem('ca451_admin_unlocked', 'true');
+      safeSessionSet('ca451_admin_unlocked', 'true');
       setAdminUnlocked(true);
       return true;
     }
@@ -315,7 +364,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const unlockSpending = useCallback((passkey: string) => {
     if (passkey.trim() === SPENDING_PASSKEY) {
-      sessionStorage.setItem('ca451_spending_unlocked', 'true');
+      safeSessionSet('ca451_spending_unlocked', 'true');
       setSpendingUnlocked(true);
       return true;
     }
@@ -329,7 +378,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       if (password === target.editorPassword) {
         setUnlockedProjectIds((prev) => {
           const next = { ...prev, [projectId]: true };
-          sessionStorage.setItem('ca451_unlocked_projects', JSON.stringify(next));
+          safeSessionSet('ca451_unlocked_projects', JSON.stringify(next));
           return next;
         });
         return true;
@@ -372,7 +421,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         });
         setUnlockedProjectIds((prev) => {
           const next = { ...prev, [projectId]: true };
-          sessionStorage.setItem('ca451_unlocked_projects', JSON.stringify(next));
+          safeSessionSet('ca451_unlocked_projects', JSON.stringify(next));
           return next;
         });
         pushToast('success', `Project "${name.trim()}" created.`);
