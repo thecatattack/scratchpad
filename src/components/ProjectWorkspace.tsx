@@ -1340,6 +1340,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       <th className="py-3 px-3 font-semibold">Part Number</th>
                       <th className="py-3 px-3 font-semibold">Rev</th>
                       <th className="py-3 px-3 font-semibold text-right">Qty</th>
+                      <th className="py-3 px-3 font-semibold text-right">
+                        Spares Req
+                      </th>
                       <th className="py-3 px-3 font-semibold">Material</th>
                       <th className="py-3 px-3 font-semibold">Machines</th>
                       <th className="py-3 px-3 font-semibold">Priority</th>
@@ -1362,6 +1365,15 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         </td>
                         <td className="py-2.5 px-3 font-mono-tabular text-right font-semibold">
                           {p.quantity}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono-tabular text-right">
+                          {p.sparesRequested > 0 ? (
+                            <span className="font-semibold text-amber-600 dark:text-amber-400">
+                              {p.sparesRequested}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-400">—</span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3">
                           {renderMaterialOrVendorCell(p)}
@@ -1458,6 +1470,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       <th className="py-3 px-4 font-semibold">Part Name</th>
                       <th className="py-3 px-3 font-semibold">Part Number</th>
                       <th className="py-3 px-3 font-semibold text-right">Qty</th>
+                      <th className="py-3 px-3 font-semibold text-right">
+                        Spares Req
+                      </th>
                       <th className="py-3 px-3 font-semibold">Source</th>
                       <th className="py-3 px-3 font-semibold">Vendor</th>
                       <th className="py-3 px-3 font-semibold">Priority</th>
@@ -1477,11 +1492,15 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         </td>
                         <td className="py-2.5 px-3 font-mono-tabular text-right font-semibold">
                           {p.quantity}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono-tabular text-right">
                           {p.sparesRequested > 0 ? (
-                            <span className="block text-[10px] font-normal text-amber-600 dark:text-amber-400">
-                              +{p.sparesRequested} spares req
+                            <span className="font-semibold text-amber-600 dark:text-amber-400">
+                              {p.sparesRequested}
                             </span>
-                          ) : null}
+                          ) : (
+                            <span className="text-zinc-400">—</span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3">{p.source}</td>
                         <td className="py-2.5 px-3">{p.vendor || '—'}</td>
@@ -1592,6 +1611,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                       <th className="py-3 px-3 font-semibold">Part Number</th>
                       <th className="py-3 px-3 font-semibold">Rev</th>
                       <th className="py-3 px-3 font-semibold text-right">Qty</th>
+                      <th className="py-3 px-3 font-semibold text-right">
+                        Spares Req
+                      </th>
                       <th className="py-3 px-3 font-semibold">Material</th>
                       <th className="py-3 px-3 font-semibold">Pathway</th>
                       <th className="py-3 px-3 font-semibold">Files</th>
@@ -1615,6 +1637,15 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                         </td>
                         <td className="py-2.5 px-3 font-mono-tabular text-right font-semibold">
                           {p.quantity}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono-tabular text-right">
+                          {p.sparesRequested > 0 ? (
+                            <span className="font-semibold text-amber-600 dark:text-amber-400">
+                              {p.sparesRequested}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-400">—</span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3">
                           {renderMaterialOrVendorCell(p)}
