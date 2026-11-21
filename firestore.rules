@@ -97,23 +97,25 @@ service cloud.firestore {
     }
 
     function isValidDimensions(dims) {
-      return dims is map
-        && dims.keys().hasOnly(['length', 'width', 'height', 'thickness', 'innerDiameter', 'outerDiameter'])
-        && (!('length' in dims) || (dims.length is string && dims.length.size() <= 30))
-        && (!('width' in dims) || (dims.width is string && dims.width.size() <= 30))
-        && (!('height' in dims) || (dims.height is string && dims.height.size() <= 30))
-        && (!('thickness' in dims) || (dims.thickness is string && dims.thickness.size() <= 30))
-        && (!('innerDiameter' in dims) || (dims.innerDiameter is string && dims.innerDiameter.size() <= 30))
-        && (!('outerDiameter' in dims) || (dims.outerDiameter is string && dims.outerDiameter.size() <= 30));
+      return dims is map && (
+        dims.size() == 0 || (
+          dims.keys().hasOnly(['length', 'width', 'height', 'thickness', 'innerDiameter', 'outerDiameter'])
+          && (!('length' in dims) || (dims.length is string && dims.length.size() <= 30))
+          && (!('width' in dims) || (dims.width is string && dims.width.size() <= 30))
+          && (!('height' in dims) || (dims.height is string && dims.height.size() <= 30))
+          && (!('thickness' in dims) || (dims.thickness is string && dims.thickness.size() <= 30))
+          && (!('innerDiameter' in dims) || (dims.innerDiameter is string && dims.innerDiameter.size() <= 30))
+          && (!('outerDiameter' in dims) || (dims.outerDiameter is string && dims.outerDiameter.size() <= 30))
+        )
+      );
     }
 
     function isValidDrawingPdf(pdf) {
       return pdf == null || (
         pdf is map
-        && pdf.keys().hasAll(['name', 'size', 'url', 'storagePath'])
         && pdf.keys().hasOnly(['name', 'size', 'url', 'storagePath', 'contentType'])
         && pdf.name is string && pdf.name.size() >= 1 && pdf.name.size() <= 200
-        && pdf.get('size', -1) is number && pdf.get('size', -1) >= 0 && pdf.get('size', -1) <= 10485760
+        && ('size' in pdf) && pdf['size'] is number && pdf['size'] >= 0 && pdf['size'] <= 10485760
         && pdf.url is string && pdf.url.size() >= 1 && pdf.url.size() <= 2000
         && pdf.storagePath is string && pdf.storagePath.size() >= 1 && pdf.storagePath.size() <= 500
         && (!('contentType' in pdf) || pdf.contentType == null || (pdf.contentType is string && pdf.contentType.size() <= 120))
@@ -121,15 +123,7 @@ service cloud.firestore {
     }
 
     function isValidPart(data, projectId, subassemblyId) {
-      return data.keys().hasAll([
-          'projectId', 'subassemblyId', 'teamCode', 'name', 'partNumber', 'quantity',
-          'type', 'source', 'vendor', 'manufacturer', 'costsMoney', 'machines',
-          'materialCategory', 'materialName', 'stockShape', 'dimensions', 'pictureUrl',
-          'drawingPdf', 'attachedFiles', 'identicalGroupId', 'notes', 'status',
-          'priority', 'assignedMachinist', 'vendorLink', 'sparesRequested', 'sparesCount',
-          'totalMachined', 'totalOrdered', 'machinesUsed', 'createdBy', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
+      return data.keys().hasOnly([
           'projectId', 'subassemblyId', 'teamCode', 'name', 'partNumber', 'revision', 'quantity',
           'type', 'source', 'vendor', 'manufacturer', 'costsMoney', 'machines',
           'materialCategory', 'materialName', 'stockShape', 'dimensions', 'pictureUrl',
@@ -139,8 +133,8 @@ service cloud.firestore {
           'createdBy', 'createdByName', 'updatedBy', 'updatedByName',
           'requestedBy', 'requestedByName', 'requestedAt', 'createdAt', 'updatedAt'
         ])
-        && isValidId(data.projectId) && data.projectId == projectId
-        && isValidId(data.subassemblyId) && data.subassemblyId == subassemblyId
+        && data.projectId == projectId
+        && data.subassemblyId == subassemblyId
         && data.teamCode == 'FRC451'
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
         && data.partNumber is string && data.partNumber.size() >= 1 && data.partNumber.size() <= 60
@@ -176,35 +170,13 @@ service cloud.firestore {
         && (!('machiningNotes' in data) || data.machiningNotes == null || (data.machiningNotes is string && data.machiningNotes.size() <= 1000))
         && data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128
         && (!('createdByName' in data) || data.createdByName == null || (data.createdByName is string && data.createdByName.size() <= 120))
-        && (!('updatedBy' in data) || data.updatedBy == null || (data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128))
+        && data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128
         && (!('updatedByName' in data) || data.updatedByName == null || (data.updatedByName is string && data.updatedByName.size() <= 120))
         && (!('requestedBy' in data) || data.requestedBy == null || (data.requestedBy is string && data.requestedBy.size() <= 128))
         && (!('requestedByName' in data) || data.requestedByName == null || (data.requestedByName is string && data.requestedByName.size() <= 120))
         && (!('requestedAt' in data) || data.requestedAt == null || data.requestedAt is timestamp)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
-    }
-
-    function isAllowedPartUpdate(affected, data, uid) {
-      return !affected.hasAny(['projectId', 'subassemblyId', 'teamCode', 'createdBy', 'createdAt'])
-        && (!affected.hasAny(['createdByName']) || isAdmin())
-        && (
-          !affected.hasAny(['requestedAt'])
-          || data.requestedAt == null
-          || (data.requestedAt == request.time && data.requestedBy == uid)
-        )
-        && (
-          affected.hasOnly([
-            'name', 'partNumber', 'revision', 'quantity', 'type', 'source', 'vendor', 'manufacturer',
-            'costsMoney', 'machines', 'materialCategory', 'materialName', 'stockShape',
-            'dimensions', 'pictureUrl', 'drawingPdf', 'attachedFiles', 'identicalGroupId',
-            'notes', 'status', 'priority', 'assignedMachinist', 'vendorLink',
-            'sparesRequested', 'sparesCount', 'totalMachined', 'totalOrdered', 'machinesUsed',
-            'machiningNotes', 'requestedBy', 'requestedByName', 'requestedAt',
-            'updatedBy', 'updatedByName', 'updatedAt'
-          ])
-          || isAdmin()
-        );
     }
 
     // Admins collection
@@ -325,7 +297,24 @@ service cloud.firestore {
             && isValidPart(incoming(), projectId, subassemblyId)
             && incoming().updatedBy == request.auth.uid
             && incoming().updatedAt == request.time
-            && isAllowedPartUpdate(incoming().diff(existing()).affectedKeys(), incoming(), request.auth.uid);
+            && (
+              !('requestedAt' in incoming())
+              || incoming().requestedAt == null
+              || ('requestedAt' in existing() && incoming().requestedAt == existing().requestedAt)
+              || (incoming().requestedAt == request.time && incoming().requestedBy == request.auth.uid)
+            )
+            && (
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'name', 'partNumber', 'revision', 'quantity', 'type', 'source', 'vendor', 'manufacturer',
+                'costsMoney', 'machines', 'materialCategory', 'materialName', 'stockShape',
+                'dimensions', 'pictureUrl', 'drawingPdf', 'attachedFiles', 'identicalGroupId',
+                'notes', 'status', 'priority', 'assignedMachinist', 'vendorLink',
+                'sparesRequested', 'sparesCount', 'totalMachined', 'totalOrdered', 'machinesUsed',
+                'machiningNotes', 'requestedBy', 'requestedByName', 'requestedAt',
+                'updatedBy', 'updatedByName', 'updatedAt'
+              ])
+              || (isAdmin() && !incoming().diff(existing()).affectedKeys().hasAny(['projectId', 'subassemblyId', 'teamCode', 'createdBy', 'createdAt']))
+            );
           allow delete: if isVerifiedUser() && isValidId(projectId) && isValidId(subassemblyId) && isValidId(partId);
         }
       }
