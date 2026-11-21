@@ -17,6 +17,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   onSnapshot,
   query,
@@ -1096,15 +1097,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           handleFirestoreError(err, OperationType.UPDATE, path);
         }
 
-        // Diagnose why Firestore rejected the update against existing document fields
+        // Diagnose why Firestore rejected the update against live server document fields
         const failures: string[] = [];
         try {
-          const snap = await getDoc(partRef);
+          let snap = await getDocFromServer(partRef).catch(() => null);
+          let readSource = 'server';
+          if (!snap) {
+            snap = await getDoc(partRef);
+            readSource = 'cache';
+          }
           if (!snap.exists()) {
-            failures.push('document does not exist in Firestore');
+            failures.push(`document does not exist in Firestore (${readSource})`);
           } else {
             const existing = snap.data() as Record<string, unknown>;
             const merged: Record<string, unknown> = { ...existing, ...payload };
+            const utf8Len = (s: string) => new TextEncoder().encode(s).length;
 
             const defaultableMutableFields: Record<string, unknown> = {
               vendor: '',
@@ -1532,15 +1539,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
               );
             }
 
+            // Check UTF-8 byte lengths (Firestore Rules .size() on strings measures UTF-8 bytes)
+            const byteLimits: Array<[string, number]> = [
+              ['name', 120],
+              ['partNumber', 60],
+              ['revision', 20],
+              ['vendor', 80],
+              ['manufacturer', 80],
+              ['materialName', 80],
+              ['pictureUrl', 2000],
+              ['identicalGroupId', 128],
+              ['notes', 2000],
+              ['assignedMachinist', 80],
+              ['vendorLink', 1000],
+              ['machiningNotes', 1000],
+              ['createdBy', 128],
+              ['createdByName', 120],
+              ['updatedBy', 128],
+              ['updatedByName', 120],
+              ['requestedBy', 128],
+              ['requestedByName', 120],
+            ];
+            for (const [fKey, maxBytes] of byteLimits) {
+              const val = merged[fKey];
+              if (typeof val === 'string' && utf8Len(val) > maxBytes) {
+                failures.push(
+                  `utf8Bytes(${fKey})=${utf8Len(val)}>${maxBytes}`
+                );
+              }
+            }
+
             if (failures.length === 0) {
               const tokenResult = await user.getIdTokenResult().catch(() => null);
               const tokenEmailVerified = tokenResult?.claims?.email_verified;
+              const optKeys = Object.keys(existing).filter(
+                (k) => !requiredKeys.includes(k)
+              );
+              const affectedKeys = Object.keys(payload).filter((k) => {
+                if (k === 'updatedAt' || k === 'requestedAt') return true;
+                return (
+                  JSON.stringify(existing[k]) !== JSON.stringify(payload[k])
+                );
+              });
+              const reqAtVal = existing.requestedAt;
+              const reqAtInfo = !('requestedAt' in existing)
+                ? 'absent'
+                : reqAtVal === null
+                ? 'null'
+                : reqAtVal instanceof Timestamp
+                ? 'ts'
+                : typeof reqAtVal;
               failures.push(
-                `ALL_CLIENT_CHECKS_PASSED uid=${user.uid} email=${
+                `ALL_CLIENT_CHECKS_PASSED src=${readSource} uid=${user.uid} email=${
                   user.email ?? 'none'
-                } tokenEmailVerified=${String(tokenEmailVerified)} payloadKeys=[${Object.keys(
-                  payload
-                ).join(',')}] existingKeysCount=${Object.keys(existing).length}`
+                } tokenEmailVerified=${String(
+                  tokenEmailVerified
+                )} payloadKeys=[${Object.keys(payload).join(
+                  ','
+                )}] affectedKeys=[${affectedKeys.join(
+                  ','
+                )}] existingKeysCount=${
+                  Object.keys(existing).length
+                } optKeys=[${optKeys.join(',')}] createdByMatch=${String(
+                  existing.createdBy === user.uid
+                )} existingUpdatedBy=${String(
+                  existing.updatedBy ?? 'none'
+                )} reqAt=${reqAtInfo} status=${String(
+                  existing.status
+                )} type=${String(existing.type)} srcType=${String(
+                  existing.source
+                )}`
               );
             }
           }
