@@ -156,6 +156,244 @@ function getUserActorLabel(u: User | null): string {
   return u.uid.slice(0, 120);
 }
 
+const PART_REQUIRED_KEYS = [
+  'projectId',
+  'subassemblyId',
+  'teamCode',
+  'name',
+  'partNumber',
+  'quantity',
+  'type',
+  'source',
+  'vendor',
+  'manufacturer',
+  'costsMoney',
+  'machines',
+  'materialCategory',
+  'materialName',
+  'stockShape',
+  'dimensions',
+  'pictureUrl',
+  'drawingPdf',
+  'attachedFiles',
+  'identicalGroupId',
+  'notes',
+  'status',
+  'priority',
+  'assignedMachinist',
+  'vendorLink',
+  'sparesRequested',
+  'sparesCount',
+  'totalMachined',
+  'totalOrdered',
+  'machinesUsed',
+  'createdBy',
+  'createdAt',
+  'updatedAt',
+];
+
+const PART_ALLOWED_KEYS = new Set([
+  ...PART_REQUIRED_KEYS,
+  'revision',
+  'machiningNotes',
+  'createdByName',
+  'updatedBy',
+  'updatedByName',
+  'requestedBy',
+  'requestedByName',
+  'requestedAt',
+]);
+
+function collectPartSchemaFailures(
+  docData: Record<string, unknown>,
+  projectId: string,
+  subassemblyId: string
+): string[] {
+  const failures: string[] = [];
+  const missingKeys = PART_REQUIRED_KEYS.filter((k) => !(k in docData));
+  const extraKeys = Object.keys(docData).filter((k) => !PART_ALLOWED_KEYS.has(k));
+  if (missingKeys.length > 0) failures.push(`missingKeys=[${missingKeys.join(',')}]`);
+  if (extraKeys.length > 0) failures.push(`extraKeys=[${extraKeys.join(',')}]`);
+  if (docData.projectId !== projectId) {
+    failures.push(`projectId mismatch (${String(docData.projectId)} != ${projectId})`);
+  }
+  if (docData.subassemblyId !== subassemblyId) {
+    failures.push(`subassemblyId mismatch (${String(docData.subassemblyId)} != ${subassemblyId})`);
+  }
+  if (docData.teamCode !== 'FRC451') failures.push(`teamCode=${String(docData.teamCode)}`);
+  if (typeof docData.name !== 'string' || docData.name.length < 1 || docData.name.length > 120) {
+    failures.push(`invalid name (${typeof docData.name})`);
+  }
+  if (typeof docData.partNumber !== 'string' || docData.partNumber.length < 1 || docData.partNumber.length > 60) {
+    failures.push(`invalid partNumber (${typeof docData.partNumber})`);
+  }
+  if (
+    'revision' in docData &&
+    docData.revision !== null &&
+    (typeof docData.revision !== 'string' || docData.revision.length > 20)
+  ) {
+    failures.push(`invalid revision (${typeof docData.revision})`);
+  }
+  if (typeof docData.quantity !== 'number' || !Number.isFinite(docData.quantity) || docData.quantity < 1 || docData.quantity > 100000) {
+    failures.push(`invalid quantity=${String(docData.quantity)}`);
+  }
+  if (docData.type !== 'Custom' && docData.type !== 'COTS') {
+    failures.push(`invalid type=${String(docData.type)}`);
+  }
+  if (!['In-House', 'Outsourced', 'Purchased', 'Inventory'].includes(String(docData.source))) {
+    failures.push(`invalid source=${String(docData.source)}`);
+  }
+  if (typeof docData.vendor !== 'string' || docData.vendor.length > 80) {
+    failures.push(`invalid vendor (${typeof docData.vendor})`);
+  }
+  if (typeof docData.manufacturer !== 'string' || docData.manufacturer.length > 80) {
+    failures.push(`invalid manufacturer (${typeof docData.manufacturer})`);
+  }
+  if (typeof docData.costsMoney !== 'boolean') {
+    failures.push(`invalid costsMoney (${typeof docData.costsMoney})`);
+  }
+  if (
+    !Array.isArray(docData.machines) ||
+    docData.machines.length > 25 ||
+    (docData.machines.length > 0 && (typeof docData.machines[0] !== 'string' || docData.machines[0].length > 60))
+  ) {
+    failures.push('invalid machines array');
+  }
+  if (!['', '3D Printer Filaments', 'Resin', 'Stock Material'].includes(String(docData.materialCategory))) {
+    failures.push(`invalid materialCategory=${String(docData.materialCategory)}`);
+  }
+  if (typeof docData.materialName !== 'string' || docData.materialName.length > 80) {
+    failures.push(`invalid materialName (${typeof docData.materialName})`);
+  }
+  if (!['', 'Box Tube', 'Plate', 'Tube'].includes(String(docData.stockShape))) {
+    failures.push(`invalid stockShape=${String(docData.stockShape)}`);
+  }
+  const dims = docData.dimensions as Record<string, unknown> | null;
+  const allowedDims = new Set(['length', 'width', 'height', 'thickness', 'innerDiameter', 'outerDiameter']);
+  if (!dims || typeof dims !== 'object' || Array.isArray(dims)) {
+    failures.push('dimensions not map');
+  } else {
+    for (const [dk, dv] of Object.entries(dims)) {
+      if (!allowedDims.has(dk)) failures.push(`unexpected dimension key ${dk}`);
+      else if (typeof dv !== 'string' || dv.length > 30) failures.push(`invalid dimension ${dk} (${typeof dv})`);
+    }
+  }
+  if (typeof docData.pictureUrl !== 'string' || docData.pictureUrl.length > 2000) {
+    failures.push(`invalid pictureUrl (${typeof docData.pictureUrl})`);
+  }
+  if (docData.drawingPdf !== null) {
+    const pdf = docData.drawingPdf as Record<string, unknown>;
+    if (
+      !pdf ||
+      typeof pdf !== 'object' ||
+      typeof pdf.name !== 'string' ||
+      pdf.name.length < 1 ||
+      pdf.name.length > 200 ||
+      typeof pdf.size !== 'number' ||
+      !Number.isFinite(pdf.size) ||
+      pdf.size < 0 ||
+      pdf.size > 10485760 ||
+      typeof pdf.url !== 'string' ||
+      pdf.url.length < 1 ||
+      pdf.url.length > 2000 ||
+      typeof pdf.storagePath !== 'string' ||
+      pdf.storagePath.length < 1 ||
+      pdf.storagePath.length > 500 ||
+      ('contentType' in pdf &&
+        pdf.contentType !== null &&
+        (typeof pdf.contentType !== 'string' || pdf.contentType.length > 120)) ||
+      Object.keys(pdf).some((k) => !['name', 'size', 'url', 'storagePath', 'contentType'].includes(k))
+    ) {
+      failures.push(`invalid drawingPdf`);
+    }
+  }
+  if (!Array.isArray(docData.attachedFiles) || docData.attachedFiles.length > 15) {
+    failures.push('invalid attachedFiles array');
+  } else if (docData.attachedFiles.length > 0) {
+    const firstFile = docData.attachedFiles[0] as Record<string, unknown>;
+    if (
+      !firstFile ||
+      typeof firstFile !== 'object' ||
+      Object.keys(firstFile).some((k) => !['name', 'size', 'url', 'storagePath', 'contentType'].includes(k))
+    ) {
+      failures.push('invalid attachedFiles[0]');
+    }
+  }
+  if (typeof docData.identicalGroupId !== 'string' || docData.identicalGroupId.length > 128) {
+    failures.push(`invalid identicalGroupId (${typeof docData.identicalGroupId})`);
+  }
+  if (typeof docData.notes !== 'string' || docData.notes.length > 2000) {
+    failures.push(`invalid notes (${typeof docData.notes})`);
+  }
+  if (
+    ![
+      'Not Started',
+      'Requested',
+      'Needs Drawing',
+      'Needs CAM',
+      'Ready for Machine',
+      'In-Progress',
+      'Denied',
+      'Shipping',
+      'Obtained',
+    ].includes(String(docData.status))
+  ) {
+    failures.push(`invalid status=${String(docData.status)}`);
+  }
+  if (!['Low Priority', 'Regular Priority', 'High Priority', 'Critical Priority'].includes(String(docData.priority))) {
+    failures.push(`invalid priority=${String(docData.priority)}`);
+  }
+  if (typeof docData.assignedMachinist !== 'string' || docData.assignedMachinist.length > 80) {
+    failures.push(`invalid assignedMachinist (${typeof docData.assignedMachinist})`);
+  }
+  if (typeof docData.vendorLink !== 'string' || docData.vendorLink.length > 1000) {
+    failures.push(`invalid vendorLink (${typeof docData.vendorLink})`);
+  }
+  for (const [intField, maxVal] of [
+    ['sparesRequested', 10000],
+    ['sparesCount', 10000],
+    ['totalMachined', 100000],
+    ['totalOrdered', 100000],
+  ] as const) {
+    const val = docData[intField];
+    if (typeof val !== 'number' || !Number.isFinite(val) || val < 0 || val > maxVal) {
+      failures.push(`invalid ${intField}=${String(val)}`);
+    }
+  }
+  if (
+    !Array.isArray(docData.machinesUsed) ||
+    docData.machinesUsed.length > 25 ||
+    (docData.machinesUsed.length > 0 && (typeof docData.machinesUsed[0] !== 'string' || docData.machinesUsed[0].length > 60))
+  ) {
+    failures.push('invalid machinesUsed array');
+  }
+  if (
+    'machiningNotes' in docData &&
+    docData.machiningNotes !== null &&
+    (typeof docData.machiningNotes !== 'string' || docData.machiningNotes.length > 1000)
+  ) {
+    failures.push(`invalid machiningNotes (${typeof docData.machiningNotes})`);
+  }
+  if (typeof docData.createdBy !== 'string' || docData.createdBy.length < 1 || docData.createdBy.length > 128) {
+    failures.push(`invalid createdBy=${String(docData.createdBy)}`);
+  }
+  for (const [nameField, maxLen, minLen] of [
+    ['createdByName', 120, 0],
+    ['updatedBy', 128, 1],
+    ['updatedByName', 120, 0],
+    ['requestedBy', 128, 0],
+    ['requestedByName', 120, 0],
+  ] as const) {
+    if (nameField in docData && docData[nameField] !== null) {
+      const v = docData[nameField];
+      if (typeof v !== 'string' || v.length < minLen || v.length > maxLen) {
+        failures.push(`invalid ${nameField} (${typeof v})`);
+      }
+    }
+  }
+  return failures;
+}
+
 function safeSessionGet(key: string): string | null {
   try {
     return sessionStorage.getItem(key);
@@ -703,29 +941,70 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       const actorLabel = getUserActorLabel(user);
       const isImmediateRequest =
         partData.status === 'Requested' || (partData.sparesRequested || 0) > 0;
+      const payload: Record<string, unknown> = {
+        ...partData,
+        projectId,
+        subassemblyId,
+        teamCode: 'FRC451',
+        createdBy: user.uid,
+        createdByName: actorLabel,
+        updatedBy: user.uid,
+        updatedByName: actorLabel,
+        requestedBy: isImmediateRequest ? user.uid : '',
+        requestedByName: isImmediateRequest ? actorLabel : '',
+        requestedAt: isImmediateRequest ? serverTimestamp() : null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
       try {
         await setDoc(
           doc(db, 'projects', projectId, 'subassemblies', subassemblyId, 'parts', partId),
-          {
-            ...partData,
-            projectId,
-            subassemblyId,
-            teamCode: 'FRC451',
-            createdBy: user.uid,
-            createdByName: actorLabel,
-            updatedBy: user.uid,
-            updatedByName: actorLabel,
-            requestedBy: isImmediateRequest ? user.uid : '',
-            requestedByName: isImmediateRequest ? actorLabel : '',
-            requestedAt: isImmediateRequest ? serverTimestamp() : null,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          }
+          payload
         );
         pushToast('success', `Added "${partData.name}" to BOM.`);
         return partId;
       } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, path);
+        const errCode = (err as { code?: string })?.code;
+        const rawMsg = err instanceof Error ? err.message : String(err);
+        const isPermError =
+          errCode === 'permission-denied' ||
+          rawMsg.includes('Missing or insufficient permissions') ||
+          rawMsg.includes('PERMISSION_DENIED');
+
+        if (!isPermError) {
+          handleFirestoreError(err, OperationType.CREATE, path);
+        }
+
+        const failures: string[] = [];
+        if (!user.emailVerified) failures.push('emailVerified=false');
+        failures.push(...collectPartSchemaFailures(payload, projectId, subassemblyId));
+        try {
+          const subSnap = await getDoc(
+            doc(db, 'projects', projectId, 'subassemblies', subassemblyId)
+          );
+          if (!subSnap.exists()) {
+            failures.push('parent subassembly does not exist in Firestore');
+          }
+        } catch (subErr) {
+          failures.push(
+            `parentSubReadFailed: ${subErr instanceof Error ? subErr.message : String(subErr)}`
+          );
+        }
+        if (failures.length === 0) {
+          const tokenResult = await user.getIdTokenResult().catch(() => null);
+          failures.push(
+            `ALL_CLIENT_CHECKS_PASSED_CREATE uid=${user.uid} email=${
+              user.email ?? 'none'
+            } tokenEmailVerified=${String(
+              tokenResult?.claims?.email_verified
+            )} payloadKeysCount=${Object.keys(payload).length}`
+          );
+        }
+        handleFirestoreError(
+          new Error(`${rawMsg} | Rule check: ${failures.join('; ')}`),
+          OperationType.CREATE,
+          path
+        );
       }
     },
     [user, pushToast]
