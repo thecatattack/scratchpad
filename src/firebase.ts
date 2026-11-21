@@ -270,27 +270,39 @@ export async function uploadTeamFile(
   const safeStoragePath =
     storagePath.length > 500 ? storagePath.slice(0, 500) : storagePath;
 
+  let url = '';
   try {
     const fileRef = ref(storage, safeStoragePath);
     const snapshot = await uploadBytes(fileRef, processedFile, {
       contentType: processedFile.type || 'application/octet-stream',
     });
-    const url = await getDownloadURL(snapshot.ref);
-    const cleanSize = Math.max(0, Math.round(processedFile.size));
-    await recordStorageUpload(cleanSize);
-    return {
-      name: (processedFile.name || 'file').slice(0, 200),
-      size: cleanSize,
-      url: url.slice(0, 2000),
-      storagePath: safeStoragePath,
-      contentType: (processedFile.type || 'application/octet-stream').slice(0, 120),
-    };
+    url = await getDownloadURL(snapshot.ref);
   } catch (err) {
+    const code = (err as { code?: string })?.code || '';
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `File upload failed for "${file.name}". Ensure Firebase Storage is enabled in your Firebase Console (${msg}).`
+      `Storage upload failed for "${file.name}" (${code ? `${code}: ` : ''}${msg}). Verify Firebase Storage is enabled and Storage Rules are deployed.`
     );
   }
+
+  const cleanSize = Math.max(0, Math.round(processedFile.size));
+  try {
+    await recordStorageUpload(cleanSize);
+  } catch (err) {
+    const code = (err as { code?: string })?.code || '';
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `File uploaded to Storage, but updating storageMeta/usage ledger failed (${code ? `${code}: ` : ''}${msg}).`
+    );
+  }
+
+  return {
+    name: (processedFile.name || 'file').slice(0, 200),
+    size: cleanSize,
+    url: url.slice(0, 2000),
+    storagePath: safeStoragePath,
+    contentType: (processedFile.type || 'application/octet-stream').slice(0, 120),
+  };
 }
 
 export async function deleteTeamFile(

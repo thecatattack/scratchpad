@@ -185,6 +185,28 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isAllowedPartUpdate(affected, data, uid) {
+      return !affected.hasAny(['projectId', 'subassemblyId', 'teamCode', 'createdBy', 'createdAt'])
+        && (!('createdByName' in affected) || isAdmin())
+        && (
+          !('requestedAt' in affected)
+          || data.requestedAt == null
+          || (data.requestedAt == request.time && data.requestedBy == uid)
+        )
+        && (
+          affected.hasOnly([
+            'name', 'partNumber', 'revision', 'quantity', 'type', 'source', 'vendor', 'manufacturer',
+            'costsMoney', 'machines', 'materialCategory', 'materialName', 'stockShape',
+            'dimensions', 'pictureUrl', 'drawingPdf', 'attachedFiles', 'identicalGroupId',
+            'notes', 'status', 'priority', 'assignedMachinist', 'vendorLink',
+            'sparesRequested', 'sparesCount', 'totalMachined', 'totalOrdered', 'machinesUsed',
+            'machiningNotes', 'requestedBy', 'requestedByName', 'requestedAt',
+            'updatedBy', 'updatedByName', 'updatedAt'
+          ])
+          || isAdmin()
+        );
+    }
+
     // Admins collection
     match /admins/{uid} {
       allow get: if isVerifiedUser() && isValidId(uid) && (request.auth.uid == uid || isAdmin());
@@ -299,54 +321,11 @@ service cloud.firestore {
           allow update: if isVerifiedUser()
             && isValidId(projectId)
             && isValidId(subassemblyId)
+            && isValidId(partId)
             && isValidPart(incoming(), projectId, subassemblyId)
-            && incoming().createdBy == existing().createdBy
-            && (!('createdByName' in incoming().diff(existing()).affectedKeys()) || isAdmin())
-            && incoming().createdAt == existing().createdAt
             && incoming().updatedBy == request.auth.uid
             && incoming().updatedAt == request.time
-            && (
-              !('requestedAt' in incoming().diff(existing()).affectedKeys())
-              || incoming().requestedAt == null
-              || (incoming().requestedAt == request.time && incoming().requestedBy == request.auth.uid)
-            )
-            && (
-              // Action 1: Full Parts Manager property re-edit (resets workflow fields)
-              incoming().diff(existing()).affectedKeys().hasOnly([
-                'name', 'partNumber', 'revision', 'quantity', 'type', 'source', 'vendor', 'manufacturer',
-                'costsMoney', 'machines', 'materialCategory', 'materialName', 'stockShape',
-                'dimensions', 'pictureUrl', 'drawingPdf', 'attachedFiles', 'identicalGroupId',
-                'notes', 'status', 'priority', 'assignedMachinist', 'vendorLink',
-                'sparesRequested', 'sparesCount', 'totalMachined', 'totalOrdered', 'machinesUsed',
-                'machiningNotes', 'requestedBy', 'requestedByName', 'requestedAt',
-                'updatedBy', 'updatedByName', 'updatedAt'
-              ])
-              // Action 2: Notes / Files / Drawing PDF / Picture quick updates
-              || incoming().diff(existing()).affectedKeys().hasOnly(['notes', 'updatedBy', 'updatedByName', 'updatedAt'])
-              || incoming().diff(existing()).affectedKeys().hasOnly(['drawingPdf', 'updatedBy', 'updatedByName', 'updatedAt'])
-              || incoming().diff(existing()).affectedKeys().hasOnly(['attachedFiles', 'updatedBy', 'updatedByName', 'updatedAt'])
-              || incoming().diff(existing()).affectedKeys().hasOnly(['pictureUrl', 'updatedBy', 'updatedByName', 'updatedAt'])
-              // Action 3: Parts Manager Request / Status / Spares actions
-              || incoming().diff(existing()).affectedKeys().hasOnly([
-                'status', 'priority', 'assignedMachinist', 'sparesRequested', 'notes', 'vendorLink',
-                'requestedBy', 'requestedByName', 'requestedAt', 'updatedBy', 'updatedByName', 'updatedAt'
-              ])
-              || incoming().diff(existing()).affectedKeys().hasOnly(['sparesCount', 'updatedBy', 'updatedByName', 'updatedAt'])
-              // Action 4: Machining Manager update
-              || incoming().diff(existing()).affectedKeys().hasOnly([
-                'machinesUsed', 'status', 'totalMachined', 'sparesCount', 'machiningNotes',
-                'updatedBy', 'updatedByName', 'updatedAt'
-              ])
-              // Action 5: Spending Manager update
-              || incoming().diff(existing()).affectedKeys().hasOnly([
-                'status', 'totalOrdered', 'sparesCount', 'updatedBy', 'updatedByName', 'updatedAt'
-              ])
-              // Action 6: Identical part group linking from Part Wizard
-              || incoming().diff(existing()).affectedKeys().hasOnly([
-                'identicalGroupId', 'updatedBy', 'updatedByName', 'updatedAt'
-              ])
-              || isAdmin()
-            );
+            && isAllowedPartUpdate(incoming().diff(existing()).affectedKeys(), incoming(), request.auth.uid);
           allow delete: if isVerifiedUser() && isValidId(projectId) && isValidId(subassemblyId) && isValidId(partId);
         }
       }
