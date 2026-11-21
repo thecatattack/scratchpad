@@ -2,16 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Check } from 'lucide-react';
 import {
   AggregatedPart,
-  COTS_VENDORS,
-  FILAMENT_MATERIALS,
   MaterialCategory,
-  OUTSOURCED_MANUFACTURERS,
   PRIORITIES,
   Part,
   PartPriority,
   PartStatus,
-  RESIN_MATERIALS,
-  STOCK_MATERIALS,
   STOCK_SHAPES,
   StockDimensions,
   StockShape,
@@ -41,7 +36,23 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
   selectedParts,
   onSaved,
 }) => {
-  const { machines, updatePart, pushToast } = useApp();
+  const { machines, catalogLists, updatePart, pushToast } = useApp();
+
+  const vendorsList = catalogLists.vendors;
+  const outsourcersList = catalogLists.outsourcers;
+  const filamentList = catalogLists.filamentMaterials;
+  const resinList = catalogLists.resinMaterials;
+  const stockList = catalogLists.stockMaterials;
+
+  const getMaterialListForCategory = (cat: MaterialCategory): string[] => {
+    if (cat === '3D Printer Filaments') return filamentList;
+    if (cat === 'Resin') return resinList;
+    return stockList;
+  };
+
+  const defaultStockMaterial =
+    (stockList.includes('Aluminum 6061') ? 'Aluminum 6061' : stockList[0]) ||
+    'Other';
 
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -72,14 +83,14 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
   const [selectedMachines, setSelectedMachines] = useState<string[]>([]);
   const [materialCategory, setMaterialCategory] =
     useState<MaterialCategory>('Stock Material');
-  const [materialSelect, setMaterialSelect] = useState(STOCK_MATERIALS[2]);
+  const [materialSelect, setMaterialSelect] = useState(defaultStockMaterial);
   const [customMaterial, setCustomMaterial] = useState('');
   const [stockShape, setStockShape] = useState<StockShape>('');
   const [dimensions, setDimensions] = useState<StockDimensions>({});
-  const [vendorSelect, setVendorSelect] = useState(COTS_VENDORS[0]);
+  const [vendorSelect, setVendorSelect] = useState(vendorsList[0] || 'Other');
   const [customVendor, setCustomVendor] = useState('');
   const [manufacturerSelect, setManufacturerSelect] = useState(
-    OUTSOURCED_MANUFACTURERS[0]
+    outsourcersList[0] || 'Other'
   );
   const [customManufacturer, setCustomManufacturer] = useState('');
   const [costsMoney, setCostsMoney] = useState(true);
@@ -138,13 +149,13 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
     setAssignedMachinist('');
     setSelectedMachines([]);
     setMaterialCategory('Stock Material');
-    setMaterialSelect(STOCK_MATERIALS[2]);
+    setMaterialSelect(defaultStockMaterial);
     setCustomMaterial('');
     setStockShape('');
     setDimensions({});
-    setVendorSelect(COTS_VENDORS[0]);
+    setVendorSelect(vendorsList[0] || 'Other');
     setCustomVendor('');
-    setManufacturerSelect(OUTSOURCED_MANUFACTURERS[0]);
+    setManufacturerSelect(outsourcersList[0] || 'Other');
     setCustomManufacturer('');
     setCostsMoney(true);
     setVendorLink('');
@@ -152,12 +163,28 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
     setNotesText('');
   }, [open, selectedParts]);
 
-  const materialOptions =
-    materialCategory === '3D Printer Filaments'
-      ? FILAMENT_MATERIALS
-      : materialCategory === 'Resin'
-      ? RESIN_MATERIALS
-      : STOCK_MATERIALS;
+  const materialOptions = getMaterialListForCategory(materialCategory);
+
+  const vendorOptions =
+    vendorsList.length === 0
+      ? ['Other']
+      : vendorSelect === 'Other' && !vendorsList.includes('Other')
+      ? [...vendorsList, 'Other']
+      : vendorsList;
+
+  const manufacturerOptions =
+    outsourcersList.length === 0
+      ? ['Other']
+      : manufacturerSelect === 'Other' && !outsourcersList.includes('Other')
+      ? [...outsourcersList, 'Other']
+      : outsourcersList;
+
+  const materialSelectOptions =
+    materialOptions.length === 0
+      ? ['Other']
+      : materialSelect === 'Other' && !materialOptions.includes('Other')
+      ? [...materialOptions, 'Other']
+      : materialOptions;
 
   const toggleMachine = (m: string) => {
     setSelectedMachines((prev) =>
@@ -579,13 +606,8 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                         onChange={(e) => {
                           const nextCat = e.target.value as MaterialCategory;
                           setMaterialCategory(nextCat);
-                          const nextList =
-                            nextCat === '3D Printer Filaments'
-                              ? FILAMENT_MATERIALS
-                              : nextCat === 'Resin'
-                              ? RESIN_MATERIALS
-                              : STOCK_MATERIALS;
-                          setMaterialSelect(nextList[0]);
+                          const nextList = getMaterialListForCategory(nextCat);
+                          setMaterialSelect(nextList[0] || 'Other');
                           setCustomMaterial('');
                           if (nextCat !== 'Stock Material') {
                             setStockShape('');
@@ -606,7 +628,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                         onChange={(e) => setMaterialSelect(e.target.value)}
                         className="px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-xs"
                       >
-                        {materialOptions.map((m) => (
+                        {materialSelectOptions.map((m) => (
                           <option key={m} value={m}>
                             {m}
                           </option>
@@ -860,7 +882,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                     onChange={(e) => setVendorSelect(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-xs"
                   >
-                    {COTS_VENDORS.map((v) => (
+                    {vendorOptions.map((v) => (
                       <option key={v} value={v}>
                         {v}
                       </option>
@@ -899,7 +921,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                     onChange={(e) => setManufacturerSelect(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-xs"
                   >
-                    {OUTSOURCED_MANUFACTURERS.map((m) => (
+                    {manufacturerOptions.map((m) => (
                       <option key={m} value={m}>
                         {m}
                       </option>

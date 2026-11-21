@@ -43,6 +43,99 @@
       },
       "required": ["teamCode", "machines", "updatedBy", "updatedAt"]
     },
+    "CatalogLists": {
+      "title": "CatalogLists",
+      "description": "Team catalog lists for vendors, outsourcers, and material categories editable from Admin mode.",
+      "type": "object",
+      "properties": {
+        "teamCode": {
+          "type": "string",
+          "enum": ["FRC451"]
+        },
+        "vendors": {
+          "type": "array",
+          "description": "Up to 50 COTS vendor names."
+        },
+        "outsourcers": {
+          "type": "array",
+          "description": "Up to 50 outsourced manufacturer names."
+        },
+        "filamentMaterials": {
+          "type": "array",
+          "description": "Up to 50 3D printer filament material names."
+        },
+        "resinMaterials": {
+          "type": "array",
+          "description": "Up to 50 resin material names."
+        },
+        "stockMaterials": {
+          "type": "array",
+          "description": "Up to 50 stock material names."
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "teamCode",
+        "vendors",
+        "outsourcers",
+        "filamentMaterials",
+        "resinMaterials",
+        "stockMaterials",
+        "updatedBy",
+        "updatedAt"
+      ]
+    },
+    "ModePasskeys": {
+      "title": "ModePasskeys",
+      "description": "Editable workspace passkeys for Team Gate, Spending Manager, and Admin Console.",
+      "type": "object",
+      "properties": {
+        "teamCode": {
+          "type": "string",
+          "enum": ["FRC451"]
+        },
+        "teamPasskey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "spendingPasskey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "adminPasskey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "teamCode",
+        "teamPasskey",
+        "spendingPasskey",
+        "adminPasskey",
+        "updatedBy",
+        "updatedAt"
+      ]
+    },
     "StorageUsage": {
       "title": "StorageUsage",
       "description": "Blaze free-tier storage quota guard tracking total bytes and monthly upload operations.",
@@ -383,7 +476,7 @@
     },
     "/settings/{settingId}": {
       "schema": { "$ref": "#/entities/MachineRoster" },
-      "description": "Shop machine roster configuration document (machines)."
+      "description": "Shop settings documents: machines (MachineRoster), catalog (CatalogLists), and passkeys (ModePasskeys)."
     },
     "/storageMeta/{docId}": {
       "schema": { "$ref": "#/entities/StorageUsage" },

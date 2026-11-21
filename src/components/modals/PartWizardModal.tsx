@@ -9,17 +9,12 @@ import {
   Upload,
 } from 'lucide-react';
 import {
-  COTS_VENDORS,
-  FILAMENT_MATERIALS,
   MaterialCategory,
-  OUTSOURCED_MANUFACTURERS,
   PRIORITIES,
   Part,
   PartPriority,
   PartSource,
   PartType,
-  RESIN_MATERIALS,
-  STOCK_MATERIALS,
   STOCK_SHAPES,
   StockDimensions,
   StockShape,
@@ -52,7 +47,23 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
   existingPartsInProject,
   editingPart,
 }) => {
-  const { machines, createPart, updatePart, pushToast } = useApp();
+  const { machines, catalogLists, createPart, updatePart, pushToast } = useApp();
+
+  const vendorsList = catalogLists.vendors;
+  const outsourcersList = catalogLists.outsourcers;
+  const filamentList = catalogLists.filamentMaterials;
+  const resinList = catalogLists.resinMaterials;
+  const stockList = catalogLists.stockMaterials;
+
+  const getMaterialListForCategory = (cat: MaterialCategory): string[] => {
+    if (cat === '3D Printer Filaments') return filamentList;
+    if (cat === 'Resin') return resinList;
+    return stockList;
+  };
+
+  const defaultStockMaterial =
+    (stockList.includes('Aluminum 6061') ? 'Aluminum 6061' : stockList[0]) ||
+    'Other';
 
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -74,16 +85,18 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
   const [sparesToPurchase, setSparesToPurchase] = useState(0);
   const [splitVendorLink, setSplitVendorLink] = useState('');
   const [sendSplitRequestNow, setSendSplitRequestNow] = useState(true);
-  const [vendorSelect, setVendorSelect] = useState(COTS_VENDORS[0]);
+  const [vendorSelect, setVendorSelect] = useState(vendorsList[0] || 'Other');
   const [customVendor, setCustomVendor] = useState('');
   const [selectedMachines, setSelectedMachines] = useState<string[]>([]);
-  const [manufacturerSelect, setManufacturerSelect] = useState(OUTSOURCED_MANUFACTURERS[0]);
+  const [manufacturerSelect, setManufacturerSelect] = useState(
+    outsourcersList[0] || 'Other'
+  );
   const [customManufacturer, setCustomManufacturer] = useState('');
   const [costsMoney, setCostsMoney] = useState(true);
 
   // Step 3: Material, Dimensions, Files, Drawing PDF, Identical Part (Custom only)
   const [materialCategory, setMaterialCategory] = useState<MaterialCategory>('Stock Material');
-  const [materialSelect, setMaterialSelect] = useState(STOCK_MATERIALS[2]);
+  const [materialSelect, setMaterialSelect] = useState(defaultStockMaterial);
   const [customMaterial, setCustomMaterial] = useState('');
   const [stockShape, setStockShape] = useState<StockShape>('');
   const [dimensions, setDimensions] = useState<StockDimensions>({});
@@ -114,14 +127,14 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
     setSparesToPurchase(0);
     setSplitVendorLink('');
     setSendSplitRequestNow(true);
-    setVendorSelect(COTS_VENDORS[0]);
+    setVendorSelect(vendorsList[0] || 'Other');
     setCustomVendor('');
     setSelectedMachines([]);
-    setManufacturerSelect(OUTSOURCED_MANUFACTURERS[0]);
+    setManufacturerSelect(outsourcersList[0] || 'Other');
     setCustomManufacturer('');
     setCostsMoney(true);
     setMaterialCategory('Stock Material');
-    setMaterialSelect(STOCK_MATERIALS[2]);
+    setMaterialSelect(defaultStockMaterial);
     setCustomMaterial('');
     setStockShape('');
     setDimensions({});
@@ -165,7 +178,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           setSplitVendorLink(editingPart.vendorLink || '');
           setSendSplitRequestNow(true);
         }
-        if (COTS_VENDORS.includes(editingPart.vendor)) {
+        if (vendorsList.includes(editingPart.vendor)) {
           setVendorSelect(editingPart.vendor);
           setCustomVendor('');
         } else {
@@ -174,7 +187,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         }
       } else if (editingPart.source === 'Outsourced') {
         setPathway('Outsourced');
-        if (OUTSOURCED_MANUFACTURERS.includes(editingPart.manufacturer)) {
+        if (outsourcersList.includes(editingPart.manufacturer)) {
           setManufacturerSelect(editingPart.manufacturer);
           setCustomManufacturer('');
         } else {
@@ -189,12 +202,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
 
       const cat = editingPart.materialCategory || 'Stock Material';
       setMaterialCategory(cat);
-      const list =
-        cat === '3D Printer Filaments'
-          ? FILAMENT_MATERIALS
-          : cat === 'Resin'
-          ? RESIN_MATERIALS
-          : STOCK_MATERIALS;
+      const list = getMaterialListForCategory(cat);
       if (list.includes(editingPart.materialName)) {
         setMaterialSelect(editingPart.materialName);
         setCustomMaterial('');
@@ -202,7 +210,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         setMaterialSelect('Other');
         setCustomMaterial(editingPart.materialName);
       } else {
-        setMaterialSelect(list[0]);
+        setMaterialSelect(list[0] || 'Other');
         setCustomMaterial('');
       }
       setStockShape(editingPart.stockShape || '');
@@ -229,12 +237,28 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
     };
   }, [picturePreview]);
 
-  const materialOptions =
-    materialCategory === '3D Printer Filaments'
-      ? FILAMENT_MATERIALS
-      : materialCategory === 'Resin'
-      ? RESIN_MATERIALS
-      : STOCK_MATERIALS;
+  const materialOptions = getMaterialListForCategory(materialCategory);
+
+  const vendorOptions =
+    vendorsList.length === 0
+      ? ['Other']
+      : vendorSelect === 'Other' && !vendorsList.includes('Other')
+      ? [...vendorsList, 'Other']
+      : vendorsList;
+
+  const manufacturerOptions =
+    outsourcersList.length === 0
+      ? ['Other']
+      : manufacturerSelect === 'Other' && !outsourcersList.includes('Other')
+      ? [...outsourcersList, 'Other']
+      : outsourcersList;
+
+  const materialSelectOptions =
+    materialOptions.length === 0
+      ? ['Other']
+      : materialSelect === 'Other' && !materialOptions.includes('Other')
+      ? [...materialOptions, 'Other']
+      : materialOptions;
 
   const customPartsCandidates = existingPartsInProject.filter(
     (p) => p.type === 'Custom' && p.id !== editingPart?.id
@@ -246,12 +270,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
     if (!match) return;
     if (match.materialCategory) {
       setMaterialCategory(match.materialCategory);
-      const list =
-        match.materialCategory === '3D Printer Filaments'
-          ? FILAMENT_MATERIALS
-          : match.materialCategory === 'Resin'
-          ? RESIN_MATERIALS
-          : STOCK_MATERIALS;
+      const list = getMaterialListForCategory(match.materialCategory);
       if (list.includes(match.materialName)) {
         setMaterialSelect(match.materialName);
         setCustomMaterial('');
@@ -914,7 +933,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
                     onChange={(e) => setVendorSelect(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
                   >
-                    {COTS_VENDORS.map((v) => (
+                    {vendorOptions.map((v) => (
                       <option key={v} value={v}>
                         {v}
                       </option>
@@ -1141,7 +1160,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
                     onChange={(e) => setManufacturerSelect(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
                   >
-                    {OUTSOURCED_MANUFACTURERS.map((m) => (
+                    {manufacturerOptions.map((m) => (
                       <option key={m} value={m}>
                         {m}
                       </option>
@@ -1203,13 +1222,8 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
                   onChange={(e) => {
                     const cat = e.target.value as MaterialCategory;
                     setMaterialCategory(cat);
-                    const nextList =
-                      cat === '3D Printer Filaments'
-                        ? FILAMENT_MATERIALS
-                        : cat === 'Resin'
-                        ? RESIN_MATERIALS
-                        : STOCK_MATERIALS;
-                    setMaterialSelect(nextList[0]);
+                    const nextList = getMaterialListForCategory(cat);
+                    setMaterialSelect(nextList[0] || 'Other');
                     setCustomMaterial('');
                     if (cat !== 'Stock Material') {
                       setStockShape('');
@@ -1233,7 +1247,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
                   onChange={(e) => setMaterialSelect(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm"
                 >
-                  {materialOptions.map((m) => (
+                  {materialSelectOptions.map((m) => (
                     <option key={m} value={m}>
                       {m}
                     </option>

@@ -5,6 +5,18 @@ export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB per file
 export const MAX_TOTAL_STORAGE_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB cap (1 GB safety buffer under 5 GB Blaze free tier)
 export const MAX_MONTHLY_UPLOADS = 4000; // 4,000/month cap (1,000 buffer under 5,000 free Class A ops)
 
+export interface ModePasskeys {
+  teamPasskey: string;
+  spendingPasskey: string;
+  adminPasskey: string;
+}
+
+export const DEFAULT_MODE_PASSKEYS: ModePasskeys = {
+  teamPasskey: TEAM_PASSKEY,
+  spendingPasskey: SPENDING_PASSKEY,
+  adminPasskey: ADMIN_PASSKEY,
+};
+
 export interface StorageUsage {
   teamCode: 'FRC451';
   totalBytesUsed: number;
@@ -71,6 +83,22 @@ export const STOCK_MATERIALS: string[] = [
   'Aluminum 5052',
   'Other',
 ];
+
+export interface CatalogLists {
+  vendors: string[];
+  outsourcers: string[];
+  filamentMaterials: string[];
+  resinMaterials: string[];
+  stockMaterials: string[];
+}
+
+export const DEFAULT_CATALOG_LISTS: CatalogLists = {
+  vendors: COTS_VENDORS,
+  outsourcers: OUTSOURCED_MANUFACTURERS,
+  filamentMaterials: FILAMENT_MATERIALS,
+  resinMaterials: RESIN_MATERIALS,
+  stockMaterials: STOCK_MATERIALS,
+};
 
 export const STOCK_SHAPES: StockShape[] = ['Box Tube', 'Plate', 'Tube'];
 

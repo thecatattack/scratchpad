@@ -27,15 +27,16 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import {
-  ADMIN_PASSKEY,
+  CatalogLists,
+  DEFAULT_CATALOG_LISTS,
   DEFAULT_MACHINES,
+  DEFAULT_MODE_PASSKEYS,
   MAX_TOTAL_STORAGE_BYTES,
+  ModePasskeys,
   Part,
   Project,
-  SPENDING_PASSKEY,
   StorageUsage,
   Subassembly,
-  TEAM_PASSKEY,
 } from '../types';
 import {
   OperationType,
@@ -66,6 +67,8 @@ interface AppContextValue {
   projects: Project[];
   projectsLoading: boolean;
   machines: string[];
+  catalogLists: CatalogLists;
+  modePasskeys: ModePasskeys;
   storageUsage: StorageUsage | null;
   toasts: ToastMessage[];
   signInGoogle: () => Promise<void>;
@@ -136,6 +139,9 @@ interface AppContextValue {
     partId: string
   ) => Promise<void>;
   saveMachinesRoster: (nextMachines: string[]) => Promise<void>;
+  saveCatalogLists: (nextCatalog: CatalogLists) => Promise<void>;
+  saveModePasskeys: (nextPasskeys: ModePasskeys) => Promise<void>;
+  updateProjectPassword: (projectId: string, editorPassword: string) => Promise<void>;
   recalculateStorageUsage: () => Promise<void>;
 }
 
@@ -346,6 +352,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState<boolean>(true);
   const [machines, setMachines] = useState<string[]>(DEFAULT_MACHINES);
+  const [catalogLists, setCatalogLists] = useState<CatalogLists>(
+    DEFAULT_CATALOG_LISTS
+  );
+  const [modePasskeys, setModePasskeys] = useState<ModePasskeys>(
+    DEFAULT_MODE_PASSKEYS
+  );
   const [storageUsage, setStorageUsage] = useState<StorageUsage | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -440,6 +452,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     );
 
+    const catalogRef = doc(db, 'settings', 'catalog');
+    const unsubCatalog = onSnapshot(
+      catalogRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as Partial<CatalogLists>;
+          setCatalogLists({
+            vendors: Array.isArray(data.vendors)
+              ? data.vendors
+              : DEFAULT_CATALOG_LISTS.vendors,
+            outsourcers: Array.isArray(data.outsourcers)
+              ? data.outsourcers
+              : DEFAULT_CATALOG_LISTS.outsourcers,
+            filamentMaterials: Array.isArray(data.filamentMaterials)
+              ? data.filamentMaterials
+              : DEFAULT_CATALOG_LISTS.filamentMaterials,
+            resinMaterials: Array.isArray(data.resinMaterials)
+              ? data.resinMaterials
+              : DEFAULT_CATALOG_LISTS.resinMaterials,
+            stockMaterials: Array.isArray(data.stockMaterials)
+              ? data.stockMaterials
+              : DEFAULT_CATALOG_LISTS.stockMaterials,
+          });
+        } else {
+          void setDoc(catalogRef, {
+            teamCode: 'FRC451',
+            ...DEFAULT_CATALOG_LISTS,
+            updatedBy: user.uid,
+            updatedAt: serverTimestamp(),
+          }).catch(() => {
+            // Non-blocking fallback if concurrent create
+          });
+        }
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'settings/catalog');
+      }
+    );
+
+    const passkeysRef = doc(db, 'settings', 'passkeys');
+    const unsubPasskeys = onSnapshot(
+      passkeysRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as Partial<ModePasskeys>;
+          setModePasskeys({
+            teamPasskey:
+              typeof data.teamPasskey === 'string' && data.teamPasskey.trim()
+                ? data.teamPasskey
+                : DEFAULT_MODE_PASSKEYS.teamPasskey,
+            spendingPasskey:
+              typeof data.spendingPasskey === 'string' &&
+              data.spendingPasskey.trim()
+                ? data.spendingPasskey
+                : DEFAULT_MODE_PASSKEYS.spendingPasskey,
+            adminPasskey:
+              typeof data.adminPasskey === 'string' && data.adminPasskey.trim()
+                ? data.adminPasskey
+                : DEFAULT_MODE_PASSKEYS.adminPasskey,
+          });
+        } else {
+          void setDoc(passkeysRef, {
+            teamCode: 'FRC451',
+            ...DEFAULT_MODE_PASSKEYS,
+            updatedBy: user.uid,
+            updatedAt: serverTimestamp(),
+          }).catch(() => {
+            // Non-blocking fallback if concurrent create
+          });
+        }
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'settings/passkeys');
+      }
+    );
+
     const usageRef = doc(db, 'storageMeta', 'usage');
     const unsubUsage = onSnapshot(
       usageRef,
@@ -464,6 +552,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => {
       unsubProjects();
       unsubMachines();
+      unsubCatalog();
+      unsubPasskeys();
       unsubUsage();
     };
   }, [authReady, user]);
@@ -499,32 +589,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     setUnlockedProjectIds({});
   }, []);
 
-  const unlockTeam = useCallback((passkey: string) => {
-    if (passkey.trim() === TEAM_PASSKEY) {
-      safeSessionSet('ca451_team_unlocked', 'true');
-      setTeamUnlocked(true);
-      return true;
-    }
-    return false;
-  }, []);
+  const unlockTeam = useCallback(
+    (passkey: string) => {
+      if (passkey.trim() === modePasskeys.teamPasskey) {
+        safeSessionSet('ca451_team_unlocked', 'true');
+        setTeamUnlocked(true);
+        return true;
+      }
+      return false;
+    },
+    [modePasskeys.teamPasskey]
+  );
 
-  const unlockAdmin = useCallback((passkey: string) => {
-    if (passkey.trim() === ADMIN_PASSKEY) {
-      safeSessionSet('ca451_admin_unlocked', 'true');
-      setAdminUnlocked(true);
-      return true;
-    }
-    return false;
-  }, []);
+  const unlockAdmin = useCallback(
+    (passkey: string) => {
+      if (passkey.trim() === modePasskeys.adminPasskey) {
+        safeSessionSet('ca451_admin_unlocked', 'true');
+        setAdminUnlocked(true);
+        return true;
+      }
+      return false;
+    },
+    [modePasskeys.adminPasskey]
+  );
 
-  const unlockSpending = useCallback((passkey: string) => {
-    if (passkey.trim() === SPENDING_PASSKEY) {
-      safeSessionSet('ca451_spending_unlocked', 'true');
-      setSpendingUnlocked(true);
-      return true;
-    }
-    return false;
-  }, []);
+  const unlockSpending = useCallback(
+    (passkey: string) => {
+      if (passkey.trim() === modePasskeys.spendingPasskey) {
+        safeSessionSet('ca451_spending_unlocked', 'true');
+        setSpendingUnlocked(true);
+        return true;
+      }
+      return false;
+    },
+    [modePasskeys.spendingPasskey]
+  );
 
   const unlockProjectEditor = useCallback(
     (projectId: string, password: string) => {
@@ -993,13 +1092,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     [pushToast]
   );
 
+  const sanitizeSettingList = useCallback((items: string[]): string[] => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of items) {
+      const cleaned = clampUtf8(raw.trim(), 60);
+      if (!cleaned || seen.has(cleaned)) continue;
+      seen.add(cleaned);
+      out.push(cleaned);
+      if (out.length >= 50) break;
+    }
+    return out;
+  }, []);
+
   const saveMachinesRoster = useCallback(
     async (nextMachines: string[]) => {
       if (!user) throw new Error('Must be signed in.');
-      const clean = nextMachines
-        .map((m) => m.trim().slice(0, 60))
-        .filter(Boolean)
-        .slice(0, 50);
+      const clean = sanitizeSettingList(nextMachines);
       const path = 'settings/machines';
       try {
         await setDoc(doc(db, 'settings', 'machines'), {
@@ -1011,6 +1120,77 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         pushToast('success', 'Shop machine roster updated.');
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, path);
+      }
+    },
+    [user, pushToast, sanitizeSettingList]
+  );
+
+  const saveCatalogLists = useCallback(
+    async (nextCatalog: CatalogLists) => {
+      if (!user) throw new Error('Must be signed in.');
+      const path = 'settings/catalog';
+      try {
+        await setDoc(doc(db, 'settings', 'catalog'), {
+          teamCode: 'FRC451',
+          vendors: sanitizeSettingList(nextCatalog.vendors),
+          outsourcers: sanitizeSettingList(nextCatalog.outsourcers),
+          filamentMaterials: sanitizeSettingList(nextCatalog.filamentMaterials),
+          resinMaterials: sanitizeSettingList(nextCatalog.resinMaterials),
+          stockMaterials: sanitizeSettingList(nextCatalog.stockMaterials),
+          updatedBy: user.uid,
+          updatedAt: serverTimestamp(),
+        });
+        pushToast('success', 'Shop catalog lists updated.');
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, path);
+      }
+    },
+    [user, pushToast, sanitizeSettingList]
+  );
+
+  const saveModePasskeys = useCallback(
+    async (nextPasskeys: ModePasskeys) => {
+      if (!user) throw new Error('Must be signed in.');
+      const teamPasskey = clampUtf8(nextPasskeys.teamPasskey.trim(), 64);
+      const spendingPasskey = clampUtf8(nextPasskeys.spendingPasskey.trim(), 64);
+      const adminPasskey = clampUtf8(nextPasskeys.adminPasskey.trim(), 64);
+      if (!teamPasskey || !spendingPasskey || !adminPasskey) {
+        throw new Error('All mode passkeys must be at least 1 character.');
+      }
+      const path = 'settings/passkeys';
+      try {
+        await setDoc(doc(db, 'settings', 'passkeys'), {
+          teamCode: 'FRC451',
+          teamPasskey,
+          spendingPasskey,
+          adminPasskey,
+          updatedBy: user.uid,
+          updatedAt: serverTimestamp(),
+        });
+        pushToast('success', 'Workspace mode passkeys updated.');
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, path);
+      }
+    },
+    [user, pushToast]
+  );
+
+  const updateProjectPassword = useCallback(
+    async (projectId: string, editorPassword: string) => {
+      if (!user) throw new Error('Must be signed in.');
+      const cleanPassword = clampUtf8(editorPassword.trim(), 64);
+      if (!cleanPassword) {
+        throw new Error('Project editor password cannot be empty.');
+      }
+      const path = `projects/${projectId}`;
+      try {
+        await updateDoc(doc(db, 'projects', projectId), {
+          editorPassword: cleanPassword,
+          updatedAt: serverTimestamp(),
+        });
+        pushToast('success', 'Project editor password updated.');
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, path);
       }
     },
     [user, pushToast]
@@ -1093,6 +1273,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         projects,
         projectsLoading,
         machines,
+        catalogLists,
+        modePasskeys,
         storageUsage,
         toasts,
         signInGoogle,
@@ -1114,6 +1296,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         updatePart,
         deletePart,
         saveMachinesRoster,
+        saveCatalogLists,
+        saveModePasskeys,
+        updateProjectPassword,
         recalculateStorageUsage,
       }}
     >

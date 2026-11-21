@@ -36,6 +36,12 @@ service cloud.firestore {
       );
     }
 
+    function isValidStringList(lst) {
+      return lst is list
+        && lst.size() <= 50
+        && (lst.size() == 0 || (lst[0] is string && lst[0].size() >= 1 && lst[0].size() <= 60));
+    }
+
     // Validation helpers (no existing() or diff() inside validators)
     function isValidAdminEntry(data, uid) {
       return data.keys().hasAll(['uid', 'createdAt'])
@@ -49,12 +55,68 @@ service cloud.firestore {
       return data.keys().hasAll(['teamCode', 'machines', 'updatedBy', 'updatedAt'])
         && data.keys().hasOnly(['teamCode', 'machines', 'updatedBy', 'updatedAt'])
         && data.teamCode == 'FRC451'
-        && data.machines is list
-        && data.machines.size() <= 50
-        && (data.machines.size() == 0 || (data.machines[0] is string && data.machines[0].size() >= 1 && data.machines[0].size() <= 60))
+        && isValidStringList(data.machines)
         && data.updatedBy is string
         && data.updatedBy.size() >= 1
         && data.updatedBy.size() <= 128
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCatalogLists(data) {
+      return data.keys().hasAll([
+          'teamCode',
+          'vendors',
+          'outsourcers',
+          'filamentMaterials',
+          'resinMaterials',
+          'stockMaterials',
+          'updatedBy',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'teamCode',
+          'vendors',
+          'outsourcers',
+          'filamentMaterials',
+          'resinMaterials',
+          'stockMaterials',
+          'updatedBy',
+          'updatedAt'
+        ])
+        && data.teamCode == 'FRC451'
+        && isValidStringList(data.vendors)
+        && isValidStringList(data.outsourcers)
+        && isValidStringList(data.filamentMaterials)
+        && isValidStringList(data.resinMaterials)
+        && isValidStringList(data.stockMaterials)
+        && data.updatedBy is string
+        && data.updatedBy.size() >= 1
+        && data.updatedBy.size() <= 128
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidModePasskeys(data) {
+      return data.keys().hasAll([
+          'teamCode',
+          'teamPasskey',
+          'spendingPasskey',
+          'adminPasskey',
+          'updatedBy',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'teamCode',
+          'teamPasskey',
+          'spendingPasskey',
+          'adminPasskey',
+          'updatedBy',
+          'updatedAt'
+        ])
+        && data.teamCode == 'FRC451'
+        && data.teamPasskey is string && data.teamPasskey.size() >= 1 && data.teamPasskey.size() <= 64
+        && data.spendingPasskey is string && data.spendingPasskey.size() >= 1 && data.spendingPasskey.size() <= 64
+        && data.adminPasskey is string && data.adminPasskey.size() >= 1 && data.adminPasskey.size() <= 64
+        && data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128
         && data.updatedAt is timestamp;
     }
 
@@ -188,23 +250,34 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(uid);
     }
 
-    // Shop settings (machines roster)
+    // Shop settings (machines roster, catalog lists, mode passkeys)
     match /settings/{settingId} {
-      allow get: if isVerifiedUser() && isValidId(settingId) && settingId == 'machines';
+      allow get: if isVerifiedUser() && isValidId(settingId) && settingId in ['machines', 'catalog', 'passkeys'];
       allow list: if false;
       allow create: if isVerifiedUser()
         && isValidId(settingId)
-        && settingId == 'machines'
-        && isValidMachineRoster(incoming())
         && incoming().updatedBy == request.auth.uid
-        && incoming().updatedAt == request.time;
+        && incoming().updatedAt == request.time
+        && (
+          (settingId == 'machines' && isValidMachineRoster(incoming())) ||
+          (settingId == 'catalog' && isValidCatalogLists(incoming())) ||
+          (settingId == 'passkeys' && isValidModePasskeys(incoming()))
+        );
       allow update: if isVerifiedUser()
         && isValidId(settingId)
-        && settingId == 'machines'
-        && isValidMachineRoster(incoming())
-        && incoming().diff(existing()).affectedKeys().hasOnly(['machines', 'updatedBy', 'updatedAt'])
         && incoming().updatedBy == request.auth.uid
-        && incoming().updatedAt == request.time;
+        && incoming().updatedAt == request.time
+        && (
+          (settingId == 'machines'
+            && isValidMachineRoster(incoming())
+            && incoming().diff(existing()).affectedKeys().hasOnly(['machines', 'updatedBy', 'updatedAt'])) ||
+          (settingId == 'catalog'
+            && isValidCatalogLists(incoming())
+            && incoming().diff(existing()).affectedKeys().hasOnly(['vendors', 'outsourcers', 'filamentMaterials', 'resinMaterials', 'stockMaterials', 'updatedBy', 'updatedAt'])) ||
+          (settingId == 'passkeys'
+            && isValidModePasskeys(incoming())
+            && incoming().diff(existing()).affectedKeys().hasOnly(['teamPasskey', 'spendingPasskey', 'adminPasskey', 'updatedBy', 'updatedAt']))
+        );
       allow delete: if false;
     }
 
