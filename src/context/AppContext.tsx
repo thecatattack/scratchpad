@@ -12,7 +12,6 @@ import {
   signOut,
 } from 'firebase/auth';
 import {
-  Timestamp,
   collection,
   deleteDoc,
   doc,
@@ -147,294 +146,131 @@ function makeId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${rand}`;
 }
 
+function clampUtf8(value: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(value).length <= maxBytes) return value;
+  let out = '';
+  for (const ch of value) {
+    if (encoder.encode(out + ch).length > maxBytes) break;
+    out += ch;
+  }
+  return out;
+}
+
 function getUserActorLabel(u: User | null): string {
   if (!u) return 'Team Member';
   const displayName = u.displayName?.trim();
   const email = u.email?.trim();
-  if (displayName && email) return `${displayName} (${email})`.slice(0, 120);
-  if (displayName) return displayName.slice(0, 120);
-  if (email) return email.slice(0, 120);
-  return u.uid.slice(0, 120);
+  if (displayName && email) return clampUtf8(`${displayName} (${email})`, 120);
+  if (displayName) return clampUtf8(displayName, 120);
+  if (email) return clampUtf8(email, 120);
+  return clampUtf8(u.uid, 120);
 }
 
-const PART_REQUIRED_KEYS = [
-  'projectId',
-  'subassemblyId',
-  'teamCode',
-  'name',
-  'partNumber',
-  'quantity',
-  'type',
-  'source',
-  'vendor',
-  'manufacturer',
-  'costsMoney',
-  'machines',
-  'materialCategory',
-  'materialName',
-  'stockShape',
-  'dimensions',
-  'pictureUrl',
-  'drawingPdf',
-  'attachedFiles',
-  'identicalGroupId',
-  'notes',
-  'status',
-  'priority',
-  'assignedMachinist',
-  'vendorLink',
-  'sparesRequested',
-  'sparesCount',
-  'totalMachined',
-  'totalOrdered',
-  'machinesUsed',
-  'createdBy',
-  'createdAt',
-  'updatedAt',
-];
+const PART_STRING_BYTE_LIMITS: Record<string, number> = {
+  name: 120,
+  partNumber: 60,
+  revision: 20,
+  vendor: 80,
+  manufacturer: 80,
+  materialName: 80,
+  pictureUrl: 2000,
+  identicalGroupId: 128,
+  notes: 2000,
+  assignedMachinist: 80,
+  vendorLink: 1000,
+  machiningNotes: 1000,
+  createdByName: 120,
+  updatedByName: 120,
+  requestedBy: 128,
+  requestedByName: 120,
+};
 
-const PART_ALLOWED_KEYS = new Set([
-  ...PART_REQUIRED_KEYS,
-  'revision',
-  'machiningNotes',
-  'createdByName',
-  'updatedBy',
-  'updatedByName',
-  'requestedBy',
-  'requestedByName',
-  'requestedAt',
-]);
+function sanitizeStoredFileRef(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const f = raw as Record<string, unknown>;
+  const name = clampUtf8(typeof f.name === 'string' && f.name.trim() ? f.name.trim() : 'file', 200);
+  const url = clampUtf8(typeof f.url === 'string' ? f.url : '', 2000);
+  const storagePath = clampUtf8(typeof f.storagePath === 'string' ? f.storagePath : '', 500);
+  const sizeNum = typeof f.size === 'number' && Number.isFinite(f.size) ? Math.round(f.size) : 0;
+  const size = Math.max(0, Math.min(10485760, sizeNum));
+  const out: Record<string, unknown> = { name, size, url, storagePath };
+  if (typeof f.contentType === 'string' && f.contentType.length > 0) {
+    out.contentType = clampUtf8(f.contentType, 120);
+  }
+  return out;
+}
 
-function collectPartSchemaFailures(
-  docData: Record<string, unknown>,
-  projectId: string,
-  subassemblyId: string
-): string[] {
-  const failures: string[] = [];
-  const missingKeys = PART_REQUIRED_KEYS.filter((k) => !(k in docData));
-  const extraKeys = Object.keys(docData).filter((k) => !PART_ALLOWED_KEYS.has(k));
-  if (missingKeys.length > 0) failures.push(`missingKeys=[${missingKeys.join(',')}]`);
-  if (extraKeys.length > 0) failures.push(`extraKeys=[${extraKeys.join(',')}]`);
-  if (docData.projectId !== projectId) {
-    failures.push(`projectId mismatch (${String(docData.projectId)} != ${projectId})`);
-  }
-  if (docData.subassemblyId !== subassemblyId) {
-    failures.push(`subassemblyId mismatch (${String(docData.subassemblyId)} != ${subassemblyId})`);
-  }
-  if (docData.teamCode !== 'FRC451') failures.push(`teamCode=${String(docData.teamCode)}`);
-  if (typeof docData.name !== 'string' || docData.name.length < 1 || docData.name.length > 120) {
-    failures.push(`invalid name (${typeof docData.name})`);
-  }
-  if (typeof docData.partNumber !== 'string' || docData.partNumber.length < 1 || docData.partNumber.length > 60) {
-    failures.push(`invalid partNumber (${typeof docData.partNumber})`);
-  }
-  if (
-    'revision' in docData &&
-    docData.revision !== null &&
-    (typeof docData.revision !== 'string' || docData.revision.length > 20)
-  ) {
-    failures.push(`invalid revision (${typeof docData.revision})`);
-  }
-  if (typeof docData.quantity !== 'number' || !Number.isFinite(docData.quantity) || docData.quantity < 1 || docData.quantity > 100000) {
-    failures.push(`invalid quantity=${String(docData.quantity)}`);
-  }
-  if (docData.type !== 'Custom' && docData.type !== 'COTS') {
-    failures.push(`invalid type=${String(docData.type)}`);
-  }
-  if (!['In-House', 'Outsourced', 'Purchased', 'Inventory'].includes(String(docData.source))) {
-    failures.push(`invalid source=${String(docData.source)}`);
-  }
-  if (typeof docData.vendor !== 'string' || docData.vendor.length > 80) {
-    failures.push(`invalid vendor (${typeof docData.vendor})`);
-  }
-  if (typeof docData.manufacturer !== 'string' || docData.manufacturer.length > 80) {
-    failures.push(`invalid manufacturer (${typeof docData.manufacturer})`);
-  }
-  if (typeof docData.costsMoney !== 'boolean') {
-    failures.push(`invalid costsMoney (${typeof docData.costsMoney})`);
-  }
-  if (
-    !Array.isArray(docData.machines) ||
-    docData.machines.length > 25 ||
-    (docData.machines.length > 0 && (typeof docData.machines[0] !== 'string' || docData.machines[0].length > 60))
-  ) {
-    failures.push('invalid machines array');
-  }
-  if (!['', '3D Printer Filaments', 'Resin', 'Stock Material'].includes(String(docData.materialCategory))) {
-    failures.push(`invalid materialCategory=${String(docData.materialCategory)}`);
-  }
-  if (typeof docData.materialName !== 'string' || docData.materialName.length > 80) {
-    failures.push(`invalid materialName (${typeof docData.materialName})`);
-  }
-  if (!['', 'Box Tube', 'Plate', 'Tube'].includes(String(docData.stockShape))) {
-    failures.push(`invalid stockShape=${String(docData.stockShape)}`);
-  }
-  const dims = docData.dimensions as Record<string, unknown> | null;
-  const allowedDims = new Set(['length', 'width', 'height', 'thickness', 'innerDiameter', 'outerDiameter']);
-  if (!dims || typeof dims !== 'object' || Array.isArray(dims)) {
-    failures.push('dimensions not map');
-  } else {
-    for (const [dk, dv] of Object.entries(dims)) {
-      if (!allowedDims.has(dk)) failures.push(`unexpected dimension key ${dk}`);
-      else if (typeof dv !== 'string' || dv.length > 30) failures.push(`invalid dimension ${dk} (${typeof dv})`);
+function sanitizePartFields(input: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...input };
+  for (const [key, maxBytes] of Object.entries(PART_STRING_BYTE_LIMITS)) {
+    if (typeof out[key] === 'string') {
+      out[key] = clampUtf8(out[key] as string, maxBytes);
     }
   }
-  if (typeof docData.pictureUrl !== 'string' || docData.pictureUrl.length > 2000) {
-    failures.push(`invalid pictureUrl (${typeof docData.pictureUrl})`);
+  if (Array.isArray(out.machines)) {
+    out.machines = out.machines
+      .slice(0, 25)
+      .filter((m): m is string => typeof m === 'string')
+      .map((m) => clampUtf8(m, 60));
   }
-  if (docData.drawingPdf !== null) {
-    const pdf = docData.drawingPdf as Record<string, unknown>;
-    if (
-      !pdf ||
-      typeof pdf !== 'object' ||
-      typeof pdf.name !== 'string' ||
-      pdf.name.length < 1 ||
-      pdf.name.length > 200 ||
-      typeof pdf.size !== 'number' ||
-      !Number.isFinite(pdf.size) ||
-      pdf.size < 0 ||
-      pdf.size > 10485760 ||
-      typeof pdf.url !== 'string' ||
-      pdf.url.length < 1 ||
-      pdf.url.length > 2000 ||
-      typeof pdf.storagePath !== 'string' ||
-      pdf.storagePath.length < 1 ||
-      pdf.storagePath.length > 500 ||
-      ('contentType' in pdf &&
-        pdf.contentType !== null &&
-        (typeof pdf.contentType !== 'string' || pdf.contentType.length > 120)) ||
-      Object.keys(pdf).some((k) => !['name', 'size', 'url', 'storagePath', 'contentType'].includes(k))
-    ) {
-      failures.push(`invalid drawingPdf`);
-    }
+  if (Array.isArray(out.machinesUsed)) {
+    out.machinesUsed = out.machinesUsed
+      .slice(0, 25)
+      .filter((m): m is string => typeof m === 'string')
+      .map((m) => clampUtf8(m, 60));
   }
-  if (!Array.isArray(docData.attachedFiles) || docData.attachedFiles.length > 15) {
-    failures.push('invalid attachedFiles array');
-  } else if (docData.attachedFiles.length > 0) {
-    const firstFile = docData.attachedFiles[0] as Record<string, unknown>;
-    if (
-      !firstFile ||
-      typeof firstFile !== 'object' ||
-      Object.keys(firstFile).some((k) => !['name', 'size', 'url', 'storagePath', 'contentType'].includes(k))
-    ) {
-      failures.push('invalid attachedFiles[0]');
-    }
-  }
-  if (typeof docData.identicalGroupId !== 'string' || docData.identicalGroupId.length > 128) {
-    failures.push(`invalid identicalGroupId (${typeof docData.identicalGroupId})`);
-  }
-  if (typeof docData.notes !== 'string' || docData.notes.length > 2000) {
-    failures.push(`invalid notes (${typeof docData.notes})`);
-  }
-  if (
-    ![
-      'Not Started',
-      'Requested',
-      'Needs Drawing',
-      'Needs CAM',
-      'Ready for Machine',
-      'In-Progress',
-      'Denied',
-      'Shipping',
-      'Obtained',
-    ].includes(String(docData.status))
-  ) {
-    failures.push(`invalid status=${String(docData.status)}`);
-  }
-  if (!['Low Priority', 'Regular Priority', 'High Priority', 'Critical Priority'].includes(String(docData.priority))) {
-    failures.push(`invalid priority=${String(docData.priority)}`);
-  }
-  if (typeof docData.assignedMachinist !== 'string' || docData.assignedMachinist.length > 80) {
-    failures.push(`invalid assignedMachinist (${typeof docData.assignedMachinist})`);
-  }
-  if (typeof docData.vendorLink !== 'string' || docData.vendorLink.length > 1000) {
-    failures.push(`invalid vendorLink (${typeof docData.vendorLink})`);
-  }
-  for (const [intField, maxVal] of [
-    ['sparesRequested', 10000],
-    ['sparesCount', 10000],
-    ['totalMachined', 100000],
-    ['totalOrdered', 100000],
-  ] as const) {
-    const val = docData[intField];
-    if (typeof val !== 'number' || !Number.isFinite(val) || val < 0 || val > maxVal) {
-      failures.push(`invalid ${intField}=${String(val)}`);
-    }
-  }
-  if (
-    !Array.isArray(docData.machinesUsed) ||
-    docData.machinesUsed.length > 25 ||
-    (docData.machinesUsed.length > 0 && (typeof docData.machinesUsed[0] !== 'string' || docData.machinesUsed[0].length > 60))
-  ) {
-    failures.push('invalid machinesUsed array');
-  }
-  if (
-    'machiningNotes' in docData &&
-    docData.machiningNotes !== null &&
-    (typeof docData.machiningNotes !== 'string' || docData.machiningNotes.length > 1000)
-  ) {
-    failures.push(`invalid machiningNotes (${typeof docData.machiningNotes})`);
-  }
-  if (typeof docData.createdBy !== 'string' || docData.createdBy.length < 1 || docData.createdBy.length > 128) {
-    failures.push(`invalid createdBy=${String(docData.createdBy)}`);
-  }
-  for (const [nameField, maxLen, minLen] of [
-    ['createdByName', 120, 0],
-    ['updatedBy', 128, 1],
-    ['updatedByName', 120, 0],
-    ['requestedBy', 128, 0],
-    ['requestedByName', 120, 0],
-  ] as const) {
-    if (nameField in docData && docData[nameField] !== null) {
-      const v = docData[nameField];
-      if (typeof v !== 'string' || v.length < minLen || v.length > maxLen) {
-        failures.push(`invalid ${nameField} (${typeof v})`);
+  if (out.dimensions && typeof out.dimensions === 'object' && !Array.isArray(out.dimensions)) {
+    const allowedDimKeys = new Set([
+      'length',
+      'width',
+      'height',
+      'thickness',
+      'innerDiameter',
+      'outerDiameter',
+    ]);
+    const cleanDims: Record<string, string> = {};
+    for (const [k, v] of Object.entries(out.dimensions as Record<string, unknown>)) {
+      if (allowedDimKeys.has(k) && typeof v === 'string') {
+        cleanDims[k] = clampUtf8(v, 30);
       }
     }
+    out.dimensions = cleanDims;
   }
-  const utf8Len = (s: string) => new TextEncoder().encode(s).length;
-  for (const [fKey, maxBytes] of [
-    ['name', 120],
-    ['partNumber', 60],
-    ['revision', 20],
-    ['vendor', 80],
-    ['manufacturer', 80],
-    ['materialName', 80],
-    ['pictureUrl', 2000],
-    ['identicalGroupId', 128],
-    ['notes', 2000],
-    ['assignedMachinist', 80],
-    ['vendorLink', 1000],
-    ['machiningNotes', 1000],
-    ['createdBy', 128],
-    ['createdByName', 120],
-    ['updatedBy', 128],
-    ['updatedByName', 120],
-    ['requestedBy', 128],
-    ['requestedByName', 120],
-  ] as const) {
-    const val = docData[fKey];
-    if (typeof val === 'string' && utf8Len(val) > maxBytes) {
-      failures.push(`utf8Bytes(${fKey})=${utf8Len(val)}>${maxBytes}`);
-    }
+  if ('drawingPdf' in out) {
+    out.drawingPdf = out.drawingPdf === null ? null : sanitizeStoredFileRef(out.drawingPdf);
   }
-  if (docData.drawingPdf && typeof docData.drawingPdf === 'object') {
-    const pdf = docData.drawingPdf as Record<string, unknown>;
-    if (typeof pdf.name === 'string' && utf8Len(pdf.name) > 200) {
-      failures.push(`utf8Bytes(pdf.name)=${utf8Len(pdf.name)}>200`);
-    }
-    if (typeof pdf.url === 'string' && utf8Len(pdf.url) > 2000) {
-      failures.push(`utf8Bytes(pdf.url)=${utf8Len(pdf.url)}>2000`);
-    }
-    if (typeof pdf.storagePath === 'string' && utf8Len(pdf.storagePath) > 500) {
-      failures.push(`utf8Bytes(pdf.storagePath)=${utf8Len(pdf.storagePath)}>500`);
-    }
-    if (typeof pdf.contentType === 'string' && utf8Len(pdf.contentType) > 120) {
-      failures.push(`utf8Bytes(pdf.contentType)=${utf8Len(pdf.contentType)}>120`);
-    }
+  if (Array.isArray(out.attachedFiles)) {
+    out.attachedFiles = out.attachedFiles
+      .slice(0, 15)
+      .map(sanitizeStoredFileRef)
+      .filter((f): f is Record<string, unknown> => f !== null);
   }
-  return failures;
+  return out;
 }
+
+const LEGACY_PART_DEFAULT_FIELDS: Record<string, unknown> = {
+  vendor: '',
+  manufacturer: '',
+  costsMoney: false,
+  machines: [],
+  materialCategory: '',
+  materialName: '',
+  stockShape: '',
+  dimensions: {},
+  pictureUrl: '',
+  drawingPdf: null,
+  attachedFiles: [],
+  identicalGroupId: '',
+  notes: '',
+  assignedMachinist: '',
+  vendorLink: '',
+  sparesRequested: 0,
+  sparesCount: 0,
+  totalMachined: 0,
+  totalOrdered: 0,
+  machinesUsed: [],
+};
 
 function safeSessionGet(key: string): string | null {
   try {
@@ -984,7 +820,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       const isImmediateRequest =
         partData.status === 'Requested' || (partData.sparesRequested || 0) > 0;
       const payload: Record<string, unknown> = {
-        ...partData,
+        ...sanitizePartFields(partData as Record<string, unknown>),
         projectId,
         subassemblyId,
         teamCode: 'FRC451',
@@ -1006,87 +842,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         pushToast('success', `Added "${partData.name}" to BOM.`);
         return partId;
       } catch (err) {
-        const errCode = (err as { code?: string })?.code;
-        const rawMsg = err instanceof Error ? err.message : String(err);
-        const isPermError =
-          errCode === 'permission-denied' ||
-          rawMsg.includes('Missing or insufficient permissions') ||
-          rawMsg.includes('PERMISSION_DENIED');
-
-        if (!isPermError) {
-          handleFirestoreError(err, OperationType.CREATE, path);
-        }
-
-        const failures: string[] = [];
-        if (!user.emailVerified) failures.push('emailVerified=false');
-        failures.push(...collectPartSchemaFailures(payload, projectId, subassemblyId));
-        let subExists = 'unknown';
-        try {
-          const subRef = doc(db, 'projects', projectId, 'subassemblies', subassemblyId);
-          const subSnap = await getDocFromServer(subRef).catch(() => getDoc(subRef));
-          subExists = String(subSnap.exists());
-          if (!subSnap.exists()) {
-            failures.push('parent subassembly does not exist in Firestore');
-          }
-        } catch (subErr) {
-          subExists = 'err';
-          failures.push(
-            `parentSubReadFailed: ${subErr instanceof Error ? subErr.message : String(subErr)}`
-          );
-        }
-        if (failures.length === 0) {
-          const tokenResult = await user.getIdTokenResult().catch(() => null);
-          const utf8Len = (s: string) => new TextEncoder().encode(s).length;
-          const picStr = typeof payload.pictureUrl === 'string' ? payload.pictureUrl : '';
-          const pdfObj =
-            payload.drawingPdf && typeof payload.drawingPdf === 'object'
-              ? (payload.drawingPdf as Record<string, unknown>)
-              : null;
-          const attArr = Array.isArray(payload.attachedFiles) ? payload.attachedFiles : [];
-          const att0 =
-            attArr.length > 0 && attArr[0] && typeof attArr[0] === 'object'
-              ? (attArr[0] as Record<string, unknown>)
-              : null;
-          const pdfSummary = pdfObj
-            ? `keys=[${Object.keys(pdfObj).join(',')}] nameB=${
-                typeof pdfObj.name === 'string' ? utf8Len(pdfObj.name) : -1
-              } urlB=${typeof pdfObj.url === 'string' ? utf8Len(pdfObj.url) : -1} pathB=${
-                typeof pdfObj.storagePath === 'string' ? utf8Len(pdfObj.storagePath) : -1
-              } size=${String(pdfObj.size)} ct=${String(pdfObj.contentType ?? 'none')}`
-            : 'null';
-          const attSummary = att0
-            ? `len=${attArr.length} att0Keys=[${Object.keys(att0).join(',')}] urlB=${
-                typeof att0.url === 'string' ? utf8Len(att0.url) : -1
-              } pathB=${
-                typeof att0.storagePath === 'string' ? utf8Len(att0.storagePath) : -1
-              } size=${String(att0.size)}`
-            : `len=${attArr.length}`;
-          const dimsObj =
-            payload.dimensions && typeof payload.dimensions === 'object'
-              ? Object.keys(payload.dimensions as Record<string, unknown>)
-              : [];
-          const machArr = Array.isArray(payload.machines) ? payload.machines : [];
-          failures.push(
-            `ALL_CLIENT_CHECKS_PASSED_CREATE uid=${user.uid} email=${
-              user.email ?? 'none'
-            } tokenEmailVerified=${String(
-              tokenResult?.claims?.email_verified
-            )} payloadKeysCount=${Object.keys(payload).length} subExists=${subExists} type=${String(
-              payload.type
-            )} src=${String(payload.source)} status=${String(
-              payload.status
-            )} reqAt=${isImmediateRequest ? 'serverTs' : 'null'} dims=[${dimsObj.join(
-              ','
-            )}] machLen=${machArr.length} picB=${utf8Len(
-              picStr
-            )} pdf=(${pdfSummary}) att=(${attSummary})`
-          );
-        }
-        handleFirestoreError(
-          new Error(`${rawMsg} | Rule check: ${failures.join('; ')}`),
-          OperationType.CREATE,
-          path
-        );
+        handleFirestoreError(err, OperationType.CREATE, path);
       }
     },
     [user, pushToast]
@@ -1158,7 +914,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       const payload: Record<string, unknown> = {
-        ...cleanUpdates,
+        ...sanitizePartFields(cleanUpdates),
         updatedBy: user.uid,
         updatedByName: actorLabel,
         updatedAt: serverTimestamp(),
@@ -1174,537 +930,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           rawMsg.includes('Missing or insufficient permissions') ||
           rawMsg.includes('PERMISSION_DENIED');
 
-        if (!isPermError) {
-          handleFirestoreError(err, OperationType.UPDATE, path);
-        }
-
-        // Diagnose why Firestore rejected the update against live server document fields
-        const failures: string[] = [];
-        try {
-          let snap = await getDocFromServer(partRef).catch(() => null);
-          let readSource = 'server';
-          if (!snap) {
-            snap = await getDoc(partRef);
-            readSource = 'cache';
-          }
-          if (!snap.exists()) {
-            failures.push(`document does not exist in Firestore (${readSource})`);
-          } else {
-            const existing = snap.data() as Record<string, unknown>;
-            const merged: Record<string, unknown> = { ...existing, ...payload };
-            const utf8Len = (s: string) => new TextEncoder().encode(s).length;
-
-            const defaultableMutableFields: Record<string, unknown> = {
-              vendor: '',
-              manufacturer: '',
-              costsMoney: false,
-              machines: [],
-              materialCategory: '',
-              materialName: '',
-              stockShape: '',
-              dimensions: {},
-              pictureUrl: '',
-              drawingPdf: null,
-              attachedFiles: [],
-              identicalGroupId: '',
-              notes: '',
-              assignedMachinist: '',
-              vendorLink: '',
-              sparesRequested: 0,
-              sparesCount: 0,
-              totalMachined: 0,
-              totalOrdered: 0,
-              machinesUsed: [],
-            };
-
-            const requiredKeys = [
-              'projectId',
-              'subassemblyId',
-              'teamCode',
-              'name',
-              'partNumber',
-              'quantity',
-              'type',
-              'source',
-              'vendor',
-              'manufacturer',
-              'costsMoney',
-              'machines',
-              'materialCategory',
-              'materialName',
-              'stockShape',
-              'dimensions',
-              'pictureUrl',
-              'drawingPdf',
-              'attachedFiles',
-              'identicalGroupId',
-              'notes',
-              'status',
-              'priority',
-              'assignedMachinist',
-              'vendorLink',
-              'sparesRequested',
-              'sparesCount',
-              'totalMachined',
-              'totalOrdered',
-              'machinesUsed',
-              'createdBy',
-              'createdAt',
-              'updatedAt',
-            ];
-            const allowedKeys = new Set([
-              ...requiredKeys,
-              'revision',
-              'machiningNotes',
-              'createdByName',
-              'updatedBy',
-              'updatedByName',
-              'requestedBy',
-              'requestedByName',
-              'requestedAt',
-            ]);
-
-            const missingKeys = requiredKeys.filter((k) => !(k in merged));
-            const extraKeys = Object.keys(merged).filter(
-              (k) => !allowedKeys.has(k)
-            );
-
-            // Auto-retry once if only safe mutable default fields were missing on a legacy doc
-            if (
-              missingKeys.length > 0 &&
-              missingKeys.every((k) => k in defaultableMutableFields) &&
-              extraKeys.length === 0 &&
-              'createdBy' in existing &&
-              'createdAt' in existing
-            ) {
-              const backfill: Record<string, unknown> = { ...payload };
-              for (const k of missingKeys) {
-                backfill[k] = defaultableMutableFields[k];
-              }
-              try {
+        if (isPermError) {
+          // Auto-backfill once if an older document is missing defaultable mutable fields
+          try {
+            const snap = await getDocFromServer(partRef).catch(() => getDoc(partRef));
+            if (snap.exists()) {
+              const existing = snap.data() as Record<string, unknown>;
+              const merged = { ...existing, ...payload };
+              const missingDefaults = Object.keys(LEGACY_PART_DEFAULT_FIELDS).filter(
+                (k) => !(k in merged)
+              );
+              if (missingDefaults.length > 0 && 'createdBy' in existing && 'createdAt' in existing) {
+                const backfill: Record<string, unknown> = { ...payload };
+                for (const k of missingDefaults) {
+                  backfill[k] = LEGACY_PART_DEFAULT_FIELDS[k];
+                }
                 await updateDoc(partRef, backfill);
                 return;
-              } catch {
-                // Fall through to full diagnostics if retry still fails
               }
             }
-
-            if (!user.emailVerified) failures.push('emailVerified=false');
-            if (missingKeys.length > 0) {
-              failures.push(`missingKeys=[${missingKeys.join(',')}]`);
-            }
-            if (extraKeys.length > 0) {
-              failures.push(`extraKeys=[${extraKeys.join(',')}]`);
-            }
-            if (merged.projectId !== projectId) {
-              failures.push(
-                `projectId mismatch (${String(merged.projectId)} != ${projectId})`
-              );
-            }
-            if (merged.subassemblyId !== subassemblyId) {
-              failures.push(
-                `subassemblyId mismatch (${String(merged.subassemblyId)} != ${subassemblyId})`
-              );
-            }
-            if (merged.teamCode !== 'FRC451') {
-              failures.push(`teamCode=${String(merged.teamCode)}`);
-            }
-            if (
-              typeof merged.name !== 'string' ||
-              merged.name.length < 1 ||
-              merged.name.length > 120
-            ) {
-              failures.push(`invalid name (${typeof merged.name})`);
-            }
-            if (
-              typeof merged.partNumber !== 'string' ||
-              merged.partNumber.length < 1 ||
-              merged.partNumber.length > 60
-            ) {
-              failures.push(`invalid partNumber (${typeof merged.partNumber})`);
-            }
-            if (
-              'revision' in merged &&
-              merged.revision !== null &&
-              (typeof merged.revision !== 'string' ||
-                merged.revision.length > 20)
-            ) {
-              failures.push(`invalid revision (${typeof merged.revision})`);
-            }
-            if (
-              typeof merged.quantity !== 'number' ||
-              !Number.isInteger(merged.quantity) ||
-              merged.quantity < 1 ||
-              merged.quantity > 100000
-            ) {
-              failures.push(`invalid quantity=${String(merged.quantity)}`);
-            }
-            if (merged.type !== 'Custom' && merged.type !== 'COTS') {
-              failures.push(`invalid type=${String(merged.type)}`);
-            }
-            if (
-              !['In-House', 'Outsourced', 'Purchased', 'Inventory'].includes(
-                String(merged.source)
-              )
-            ) {
-              failures.push(`invalid source=${String(merged.source)}`);
-            }
-            if (typeof merged.vendor !== 'string' || merged.vendor.length > 80) {
-              failures.push(`invalid vendor (${typeof merged.vendor})`);
-            }
-            if (
-              typeof merged.manufacturer !== 'string' ||
-              merged.manufacturer.length > 80
-            ) {
-              failures.push(
-                `invalid manufacturer (${typeof merged.manufacturer})`
-              );
-            }
-            if (typeof merged.costsMoney !== 'boolean') {
-              failures.push(`invalid costsMoney (${typeof merged.costsMoney})`);
-            }
-            if (
-              !Array.isArray(merged.machines) ||
-              merged.machines.length > 25 ||
-              (merged.machines.length > 0 &&
-                (typeof merged.machines[0] !== 'string' ||
-                  merged.machines[0].length > 60))
-            ) {
-              failures.push('invalid machines array');
-            }
-            if (
-              !['', '3D Printer Filaments', 'Resin', 'Stock Material'].includes(
-                String(merged.materialCategory)
-              )
-            ) {
-              failures.push(
-                `invalid materialCategory=${String(merged.materialCategory)}`
-              );
-            }
-            if (
-              typeof merged.materialName !== 'string' ||
-              merged.materialName.length > 80
-            ) {
-              failures.push(
-                `invalid materialName (${typeof merged.materialName})`
-              );
-            }
-            if (
-              !['', 'Box Tube', 'Plate', 'Tube'].includes(
-                String(merged.stockShape)
-              )
-            ) {
-              failures.push(`invalid stockShape=${String(merged.stockShape)}`);
-            }
-            const dims = merged.dimensions as Record<string, unknown> | null;
-            const allowedDims = new Set([
-              'length',
-              'width',
-              'height',
-              'thickness',
-              'innerDiameter',
-              'outerDiameter',
-            ]);
-            if (!dims || typeof dims !== 'object' || Array.isArray(dims)) {
-              failures.push('dimensions not map');
-            } else {
-              for (const [dk, dv] of Object.entries(dims)) {
-                if (!allowedDims.has(dk)) {
-                  failures.push(`unexpected dimension key ${dk}`);
-                } else if (typeof dv !== 'string' || dv.length > 30) {
-                  failures.push(`invalid dimension ${dk} (${typeof dv})`);
-                }
-              }
-            }
-            if (
-              typeof merged.pictureUrl !== 'string' ||
-              merged.pictureUrl.length > 2000
-            ) {
-              failures.push(
-                `invalid pictureUrl (type=${typeof merged.pictureUrl}, len=${
-                  typeof merged.pictureUrl === 'string'
-                    ? merged.pictureUrl.length
-                    : 'n/a'
-                })`
-              );
-            }
-            if (merged.drawingPdf !== null) {
-              const pdf = merged.drawingPdf as Record<string, unknown>;
-              if (
-                !pdf ||
-                typeof pdf !== 'object' ||
-                typeof pdf.name !== 'string' ||
-                pdf.name.length < 1 ||
-                pdf.name.length > 200 ||
-                typeof pdf.size !== 'number' ||
-                !Number.isInteger(pdf.size) ||
-                pdf.size < 0 ||
-                pdf.size > 10485760 ||
-                typeof pdf.url !== 'string' ||
-                pdf.url.length < 1 ||
-                pdf.url.length > 2000 ||
-                typeof pdf.storagePath !== 'string' ||
-                pdf.storagePath.length < 1 ||
-                pdf.storagePath.length > 500 ||
-                ('contentType' in pdf &&
-                  pdf.contentType !== null &&
-                  (typeof pdf.contentType !== 'string' ||
-                    pdf.contentType.length > 120)) ||
-                Object.keys(pdf).some(
-                  (k) =>
-                    !['name', 'size', 'url', 'storagePath', 'contentType'].includes(
-                      k
-                    )
-                )
-              ) {
-                failures.push(`invalid drawingPdf (${JSON.stringify(pdf)})`);
-              }
-            }
-            if (!Array.isArray(merged.attachedFiles) || merged.attachedFiles.length > 15) {
-              failures.push('invalid attachedFiles array');
-            } else if (merged.attachedFiles.length > 0) {
-              const firstFile = merged.attachedFiles[0] as Record<string, unknown>;
-              if (
-                !firstFile ||
-                typeof firstFile !== 'object' ||
-                Object.keys(firstFile).some(
-                  (k) =>
-                    !['name', 'size', 'url', 'storagePath', 'contentType'].includes(
-                      k
-                    )
-                )
-              ) {
-                failures.push(
-                  `invalid attachedFiles[0] keys=[${
-                    firstFile && typeof firstFile === 'object'
-                      ? Object.keys(firstFile).join(',')
-                      : typeof firstFile
-                  }]`
-                );
-              }
-            }
-            if (
-              typeof merged.identicalGroupId !== 'string' ||
-              merged.identicalGroupId.length > 128
-            ) {
-              failures.push(
-                `invalid identicalGroupId (${typeof merged.identicalGroupId})`
-              );
-            }
-            if (
-              typeof merged.notes !== 'string' ||
-              merged.notes.length > 2000
-            ) {
-              failures.push(
-                `invalid notes (type=${typeof merged.notes}, len=${
-                  typeof merged.notes === 'string' ? merged.notes.length : 'n/a'
-                })`
-              );
-            }
-            if (
-              ![
-                'Not Started',
-                'Requested',
-                'Needs Drawing',
-                'Needs CAM',
-                'Ready for Machine',
-                'In-Progress',
-                'Denied',
-                'Shipping',
-                'Obtained',
-              ].includes(String(merged.status))
-            ) {
-              failures.push(`invalid status=${String(merged.status)}`);
-            }
-            if (
-              ![
-                'Low Priority',
-                'Regular Priority',
-                'High Priority',
-                'Critical Priority',
-              ].includes(String(merged.priority))
-            ) {
-              failures.push(`invalid priority=${String(merged.priority)}`);
-            }
-            if (
-              typeof merged.assignedMachinist !== 'string' ||
-              merged.assignedMachinist.length > 80
-            ) {
-              failures.push(
-                `invalid assignedMachinist (${typeof merged.assignedMachinist})`
-              );
-            }
-            if (
-              typeof merged.vendorLink !== 'string' ||
-              merged.vendorLink.length > 1000
-            ) {
-              failures.push(`invalid vendorLink (${typeof merged.vendorLink})`);
-            }
-            for (const [intField, maxVal] of [
-              ['sparesRequested', 10000],
-              ['sparesCount', 10000],
-              ['totalMachined', 100000],
-              ['totalOrdered', 100000],
-            ] as const) {
-              const val = merged[intField];
-              if (
-                typeof val !== 'number' ||
-                !Number.isInteger(val) ||
-                val < 0 ||
-                val > maxVal
-              ) {
-                failures.push(`invalid ${intField}=${String(val)}`);
-              }
-            }
-            if (
-              !Array.isArray(merged.machinesUsed) ||
-              merged.machinesUsed.length > 25 ||
-              (merged.machinesUsed.length > 0 &&
-                (typeof merged.machinesUsed[0] !== 'string' ||
-                  merged.machinesUsed[0].length > 60))
-            ) {
-              failures.push('invalid machinesUsed array');
-            }
-            if (
-              'machiningNotes' in merged &&
-              merged.machiningNotes !== null &&
-              (typeof merged.machiningNotes !== 'string' ||
-                merged.machiningNotes.length > 1000)
-            ) {
-              failures.push(
-                `invalid machiningNotes (${typeof merged.machiningNotes})`
-              );
-            }
-            if (
-              typeof existing.createdBy !== 'string' ||
-              existing.createdBy.length < 1 ||
-              existing.createdBy.length > 128
-            ) {
-              failures.push(`invalid existing.createdBy=${String(existing.createdBy)}`);
-            }
-            for (const [nameField, maxLen, minLen] of [
-              ['createdByName', 120, 0],
-              ['updatedBy', 128, 1],
-              ['updatedByName', 120, 0],
-              ['requestedBy', 128, 0],
-              ['requestedByName', 120, 0],
-            ] as const) {
-              if (nameField in merged && merged[nameField] !== null) {
-                const v = merged[nameField];
-                if (
-                  typeof v !== 'string' ||
-                  v.length < minLen ||
-                  v.length > maxLen
-                ) {
-                  failures.push(
-                    `invalid ${nameField} (type=${typeof v}, val=${String(v).slice(0, 40)})`
-                  );
-                }
-              }
-            }
-            if (
-              'requestedAt' in merged &&
-              merged.requestedAt !== null &&
-              !(merged.requestedAt instanceof Timestamp) &&
-              !('requestedAt' in cleanUpdates)
-            ) {
-              failures.push(
-                `invalid existing.requestedAt (${typeof merged.requestedAt}: ${JSON.stringify(
-                  merged.requestedAt
-                )})`
-              );
-            }
-            if (!(existing.createdAt instanceof Timestamp)) {
-              failures.push(
-                `invalid existing.createdAt (${typeof existing.createdAt})`
-              );
-            }
-
-            // Check UTF-8 byte lengths (Firestore Rules .size() on strings measures UTF-8 bytes)
-            const byteLimits: Array<[string, number]> = [
-              ['name', 120],
-              ['partNumber', 60],
-              ['revision', 20],
-              ['vendor', 80],
-              ['manufacturer', 80],
-              ['materialName', 80],
-              ['pictureUrl', 2000],
-              ['identicalGroupId', 128],
-              ['notes', 2000],
-              ['assignedMachinist', 80],
-              ['vendorLink', 1000],
-              ['machiningNotes', 1000],
-              ['createdBy', 128],
-              ['createdByName', 120],
-              ['updatedBy', 128],
-              ['updatedByName', 120],
-              ['requestedBy', 128],
-              ['requestedByName', 120],
-            ];
-            for (const [fKey, maxBytes] of byteLimits) {
-              const val = merged[fKey];
-              if (typeof val === 'string' && utf8Len(val) > maxBytes) {
-                failures.push(
-                  `utf8Bytes(${fKey})=${utf8Len(val)}>${maxBytes}`
-                );
-              }
-            }
-
-            if (failures.length === 0) {
-              const tokenResult = await user.getIdTokenResult().catch(() => null);
-              const tokenEmailVerified = tokenResult?.claims?.email_verified;
-              const optKeys = Object.keys(existing).filter(
-                (k) => !requiredKeys.includes(k)
-              );
-              const affectedKeys = Object.keys(payload).filter((k) => {
-                if (k === 'updatedAt' || k === 'requestedAt') return true;
-                return (
-                  JSON.stringify(existing[k]) !== JSON.stringify(payload[k])
-                );
-              });
-              const reqAtVal = existing.requestedAt;
-              const reqAtInfo = !('requestedAt' in existing)
-                ? 'absent'
-                : reqAtVal === null
-                ? 'null'
-                : reqAtVal instanceof Timestamp
-                ? 'ts'
-                : typeof reqAtVal;
-              failures.push(
-                `ALL_CLIENT_CHECKS_PASSED src=${readSource} uid=${user.uid} email=${
-                  user.email ?? 'none'
-                } tokenEmailVerified=${String(
-                  tokenEmailVerified
-                )} payloadKeys=[${Object.keys(payload).join(
-                  ','
-                )}] affectedKeys=[${affectedKeys.join(
-                  ','
-                )}] existingKeysCount=${
-                  Object.keys(existing).length
-                } optKeys=[${optKeys.join(',')}] createdByMatch=${String(
-                  existing.createdBy === user.uid
-                )} existingUpdatedBy=${String(
-                  existing.updatedBy ?? 'none'
-                )} reqAt=${reqAtInfo} status=${String(
-                  existing.status
-                )} type=${String(existing.type)} srcType=${String(
-                  existing.source
-                )}`
-              );
-            }
+          } catch {
+            // Fall through to structured Firestore error handler
           }
-        } catch (diagErr) {
-          failures.push(
-            `diagReadFailed: ${
-              diagErr instanceof Error ? diagErr.message : String(diagErr)
-            }`
-          );
         }
 
-        const detailedErr = new Error(
-          `${rawMsg} | Rule check: ${failures.join('; ')}`
-        );
-        handleFirestoreError(detailedErr, OperationType.UPDATE, path);
+        handleFirestoreError(err, OperationType.UPDATE, path);
       }
     },
     [user]
