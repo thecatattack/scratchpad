@@ -115,10 +115,10 @@ service cloud.firestore {
         pdf is map
         && pdf.keys().hasOnly(['name', 'size', 'url', 'storagePath', 'contentType'])
         && pdf.name is string && pdf.name.size() >= 1 && pdf.name.size() <= 200
-        && ('size' in pdf) && pdf['size'] is number && pdf['size'] >= 0 && pdf['size'] <= 10485760
+        && pdf.size is number && pdf.size >= 0 && pdf.size <= 10485760
         && pdf.url is string && pdf.url.size() >= 1 && pdf.url.size() <= 2000
         && pdf.storagePath is string && pdf.storagePath.size() >= 1 && pdf.storagePath.size() <= 500
-        && (!('contentType' in pdf) || pdf.contentType == null || (pdf.contentType is string && pdf.contentType.size() <= 120))
+        && (('contentType' in pdf && pdf.contentType is string && pdf.contentType.size() <= 120) || !('contentType' in pdf) || pdf.contentType == null)
       );
     }
 
@@ -138,7 +138,7 @@ service cloud.firestore {
         && data.teamCode == 'FRC451'
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
         && data.partNumber is string && data.partNumber.size() >= 1 && data.partNumber.size() <= 60
-        && (!('revision' in data) || data.revision == null || (data.revision is string && data.revision.size() <= 20))
+        && (('revision' in data && data.revision is string && data.revision.size() <= 20) || !('revision' in data) || data.revision == null)
         && data.quantity is number && data.quantity >= 1 && data.quantity <= 100000
         && data.type in ['Custom', 'COTS']
         && data.source in ['In-House', 'Outsourced', 'Purchased', 'Inventory']
@@ -167,13 +167,13 @@ service cloud.firestore {
         && data.totalOrdered is number && data.totalOrdered >= 0 && data.totalOrdered <= 100000
         && data.machinesUsed is list && data.machinesUsed.size() <= 25
         && (data.machinesUsed.size() == 0 || (data.machinesUsed[0] is string && data.machinesUsed[0].size() <= 60))
-        && (!('machiningNotes' in data) || data.machiningNotes == null || (data.machiningNotes is string && data.machiningNotes.size() <= 1000))
-        && data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128
-        && (!('createdByName' in data) || data.createdByName == null || (data.createdByName is string && data.createdByName.size() <= 120))
-        && data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128
-        && (!('updatedByName' in data) || data.updatedByName == null || (data.updatedByName is string && data.updatedByName.size() <= 120))
-        && (!('requestedBy' in data) || data.requestedBy == null || (data.requestedBy is string && data.requestedBy.size() <= 128))
-        && (!('requestedByName' in data) || data.requestedByName == null || (data.requestedByName is string && data.requestedByName.size() <= 120))
+        && (('machiningNotes' in data && data.machiningNotes is string && data.machiningNotes.size() <= 1000) || !('machiningNotes' in data) || data.machiningNotes == null)
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && (('createdByName' in data && data.createdByName is string && data.createdByName.size() <= 120) || !('createdByName' in data) || data.createdByName == null)
+        && data.updatedBy is string && data.updatedBy.size() <= 128
+        && (('updatedByName' in data && data.updatedByName is string && data.updatedByName.size() <= 120) || !('updatedByName' in data) || data.updatedByName == null)
+        && (('requestedBy' in data && data.requestedBy is string && data.requestedBy.size() <= 128) || !('requestedBy' in data) || data.requestedBy == null)
+        && (('requestedByName' in data && data.requestedByName is string && data.requestedByName.size() <= 120) || !('requestedByName' in data) || data.requestedByName == null)
         && (!('requestedAt' in data) || data.requestedAt == null || data.requestedAt is timestamp)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;

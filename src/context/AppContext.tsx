@@ -1061,6 +1061,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
                 typeof att0.storagePath === 'string' ? utf8Len(att0.storagePath) : -1
               } size=${String(att0.size)}`
             : `len=${attArr.length}`;
+          const dimsObj =
+            payload.dimensions && typeof payload.dimensions === 'object'
+              ? Object.keys(payload.dimensions as Record<string, unknown>)
+              : [];
+          const machArr = Array.isArray(payload.machines) ? payload.machines : [];
           failures.push(
             `ALL_CLIENT_CHECKS_PASSED_CREATE uid=${user.uid} email=${
               user.email ?? 'none'
@@ -1070,7 +1075,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
               payload.type
             )} src=${String(payload.source)} status=${String(
               payload.status
-            )} reqAt=${isImmediateRequest ? 'serverTs' : 'null'} picB=${utf8Len(
+            )} reqAt=${isImmediateRequest ? 'serverTs' : 'null'} dims=[${dimsObj.join(
+              ','
+            )}] machLen=${machArr.length} picB=${utf8Len(
               picStr
             )} pdf=(${pdfSummary}) att=(${attSummary})`
           );
