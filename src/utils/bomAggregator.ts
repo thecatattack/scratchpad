@@ -126,6 +126,10 @@ export function buildFlattenedMainParts(
       new Set(group.map((p) => p.revision?.trim()).filter(Boolean))
     ).join(', ');
     const vendorLink = group.find((p) => p.vendorLink)?.vendorLink ?? '';
+    const priceEntry = group.find(
+      (p) => typeof p.price === 'number' && Number.isFinite(p.price)
+    );
+    const price = priceEntry ? priceEntry.price ?? null : null;
 
     const earliestCreated = group.reduce((earliest, p) => {
       const eMs = toMillis(earliest.createdAt);
@@ -168,6 +172,7 @@ export function buildFlattenedMainParts(
       machiningNotes,
       assignedMachinist,
       vendorLink,
+      price,
       createdBy: earliestCreated.createdBy,
       createdByName: earliestCreated.createdByName,
       createdAt: earliestCreated.createdAt,

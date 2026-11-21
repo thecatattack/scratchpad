@@ -197,6 +197,7 @@ export interface Part {
   priority: PartPriority;
   assignedMachinist: string;
   vendorLink: string;
+  price?: number | null;
   sparesRequested: number;
   sparesCount: number;
   totalMachined: number;

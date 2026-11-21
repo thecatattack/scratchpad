@@ -90,6 +90,14 @@ function parseNonNegativeInt(raw: string | number, max: number): number {
   return Math.min(max, Math.max(0, Math.floor(n)));
 }
 
+function parseOptionalPrice(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(Math.min(1000000, n) * 100) / 100;
+}
+
 export const DetailModals: React.FC<DetailModalsProps> = ({
   modal,
   onClose,
@@ -108,6 +116,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
   const [machiningNotesDraft, setMachiningNotesDraft] = useState('');
   const [statusDraft, setStatusDraft] = useState<PartStatus>('Requested');
   const [totalCountInput, setTotalCountInput] = useState('0');
+  const [priceInput, setPriceInput] = useState('');
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -122,6 +131,11 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
     setPriorityDraft(part.priority || 'Regular Priority');
     setSparesDraft(modal.type === 'spare-edit' ? part.sparesCount : part.sparesRequested || 0);
     setLinkDraft(part.vendorLink || '');
+    setPriceInput(
+      typeof part.price === 'number' && Number.isFinite(part.price)
+        ? part.price.toFixed(2)
+        : ''
+    );
     setMachinesUsedDraft(part.machinesUsed || []);
     setMachiningNotesDraft(part.machiningNotes || '');
 
@@ -956,6 +970,8 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
 
   // 9. Request Purchased (Parts Manager -> Spending Manager)
   if (modal.type === 'request-purchased') {
+    const parsedPrice = parseOptionalPrice(priceInput);
+    const totalOrderQty = part.quantity + sparesDraft;
     return (
       <Modal
         open
@@ -979,7 +995,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                 Priority
@@ -1009,7 +1025,35 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
               />
             </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Unit Price ($ USD)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={1000000}
+                step="0.01"
+                value={priceInput}
+                onChange={(e) => setPriceInput(e.target.value)}
+                placeholder="0.00 (Optional)"
+                className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
+              />
+            </div>
           </div>
+
+          {parsedPrice !== null ? (
+            <div className="px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] text-xs flex items-center justify-between">
+              <span className="text-zinc-500 dark:text-zinc-400">
+                Estimated Total ({part.quantity} BOM
+                {sparesDraft > 0 ? ` + ${sparesDraft} spares` : ''})
+              </span>
+              <span className="font-mono-tabular font-bold text-zinc-900 dark:text-white">
+                ${(totalOrderQty * parsedPrice).toFixed(2)}
+              </span>
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
@@ -1047,6 +1091,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                     status: 'Requested',
                     priority: priorityDraft,
                     vendorLink: linkDraft.trim().slice(0, 1000),
+                    price: parseOptionalPrice(priceInput),
                     sparesRequested: parseNonNegativeInt(sparesDraft, 10000),
                     notes: notesDraft.trim().slice(0, 2000),
                   });
@@ -1070,6 +1115,8 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
 
   // 10. Request Outsourced (Paid -> Spending Manager)
   if (modal.type === 'request-outsourced') {
+    const parsedPrice = parseOptionalPrice(priceInput);
+    const totalOrderQty = part.quantity + sparesDraft;
     return (
       <Modal
         open
@@ -1080,7 +1127,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
         maxWidth="md"
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                 Priority
@@ -1109,7 +1156,34 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
               />
             </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Unit Price ($ USD)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={1000000}
+                step="0.01"
+                value={priceInput}
+                onChange={(e) => setPriceInput(e.target.value)}
+                placeholder="0.00 (Optional)"
+                className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
+              />
+            </div>
           </div>
+
+          {parsedPrice !== null ? (
+            <div className="px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] text-xs flex items-center justify-between">
+              <span className="text-zinc-500 dark:text-zinc-400">
+                Estimated Total ({part.quantity} BOM
+                {sparesDraft > 0 ? ` + ${sparesDraft} spares` : ''})
+              </span>
+              <span className="font-mono-tabular font-bold text-zinc-900 dark:text-white">
+                ${(totalOrderQty * parsedPrice).toFixed(2)}
+              </span>
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
@@ -1160,6 +1234,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                     status: 'Requested',
                     priority: priorityDraft,
                     vendorLink: linkDraft.trim().slice(0, 1000),
+                    price: parseOptionalPrice(priceInput),
                     sparesRequested: parseNonNegativeInt(sparesDraft, 10000),
                     notes: notesDraft.trim().slice(0, 2000),
                   });
@@ -1340,18 +1415,50 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             </div>
           ) : null}
 
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-              Spares Needed
-            </label>
-            <input
-              type="number"
-              min={1}
-              value={sparesDraft || 1}
-              onChange={(e) => setSparesDraft(Math.max(1, parseNonNegativeInt(e.target.value, 10000)))}
-              className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Spares Needed
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={sparesDraft || 1}
+                onChange={(e) => setSparesDraft(Math.max(1, parseNonNegativeInt(e.target.value, 10000)))}
+                className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
+              />
+            </div>
+
+            {isPurchased || isOutsourcedPaid ? (
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Unit Price ($ USD)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1000000}
+                  step="0.01"
+                  value={priceInput}
+                  onChange={(e) => setPriceInput(e.target.value)}
+                  placeholder="0.00 (Optional)"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
+                />
+              </div>
+            ) : null}
           </div>
+
+          {(isPurchased || isOutsourcedPaid) && parseOptionalPrice(priceInput) !== null ? (
+            <div className="px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] text-xs flex items-center justify-between">
+              <span className="text-zinc-500 dark:text-zinc-400">
+                Estimated Spares Total ({Math.max(1, sparesDraft || 1)} unit
+                {Math.max(1, sparesDraft || 1) === 1 ? '' : 's'})
+              </span>
+              <span className="font-mono-tabular font-bold text-zinc-900 dark:text-white">
+                ${(Math.max(1, sparesDraft || 1) * (parseOptionalPrice(priceInput) ?? 0)).toFixed(2)}
+              </span>
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
@@ -1394,9 +1501,11 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                 } else if (isOutsourcedPaid) {
                   payload.priority = priorityDraft;
                   payload.vendorLink = linkDraft.trim().slice(0, 1000);
+                  payload.price = parseOptionalPrice(priceInput);
                 } else if (isPurchased) {
                   payload.priority = priorityDraft;
                   payload.vendorLink = linkDraft.trim().slice(0, 1000);
+                  payload.price = parseOptionalPrice(priceInput);
                 }
                 try {
                   await updateAllContributingParts(payload);
@@ -1634,6 +1743,13 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
   if (modal.type === 'approved-action') {
     const isInventorySparesOnly = part.source === 'Inventory';
     const parsedOrderedTotal = parseNonNegativeInt(totalCountInput, 100000);
+    const parsedPrice = parseOptionalPrice(priceInput);
+    const qtyForEstimate =
+      parsedOrderedTotal > 0
+        ? parsedOrderedTotal
+        : isInventorySparesOnly
+        ? part.sparesRequested
+        : part.quantity + (part.sparesRequested || 0);
 
     return (
       <Modal
@@ -1708,15 +1824,45 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
             </div>
           </div>
 
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            {isInventorySparesOnly
-              ? 'Spares Added to Stock: '
-              : 'Calculated Spares Ordered: '}
-            <span className="font-mono-tabular font-semibold text-zinc-900 dark:text-white">
-              {isInventorySparesOnly
-                ? parsedOrderedTotal
-                : Math.max(0, parsedOrderedTotal - part.quantity)}
-            </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Unit Price ($ USD)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={1000000}
+                step="0.01"
+                value={priceInput}
+                onChange={(e) => setPriceInput(e.target.value)}
+                placeholder="0.00 (Optional)"
+                className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-sm font-mono-tabular"
+              />
+            </div>
+
+            <div className="px-3 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090B] text-xs space-y-0.5">
+              <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
+                <span>
+                  {isInventorySparesOnly
+                    ? 'Spares Added:'
+                    : 'Calc. Spares:'}
+                </span>
+                <span className="font-mono-tabular font-semibold text-zinc-900 dark:text-white">
+                  {isInventorySparesOnly
+                    ? parsedOrderedTotal
+                    : Math.max(0, parsedOrderedTotal - part.quantity)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
+                <span>Est. Total ({qtyForEstimate} ea):</span>
+                <span className="font-mono-tabular font-semibold text-zinc-900 dark:text-white">
+                  {parsedPrice !== null
+                    ? `$${(qtyForEstimate * parsedPrice).toFixed(2)}`
+                    : '—'}
+                </span>
+              </div>
+            </div>
           </div>
 
           {actionError ? (
@@ -1745,6 +1891,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                     ? total
                     : Math.max(0, total - part.quantity)
                 );
+                const nextPrice = parseOptionalPrice(priceInput);
                 setBusy(true);
                 setActionError('');
                 try {
@@ -1754,6 +1901,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                       status: statusDraft,
                       totalOrdered: total,
                       sparesCount: spares,
+                      price: nextPrice,
                     });
                   } else if (isInventorySparesOnly) {
                     let remainingTotal = total;
@@ -1774,6 +1922,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                         status: statusDraft,
                         totalOrdered: alloc,
                         sparesCount: alloc,
+                        price: nextPrice,
                       });
                     });
                     await Promise.all(tasks);
@@ -1799,6 +1948,7 @@ export const DetailModals: React.FC<DetailModalsProps> = ({
                         status: statusDraft,
                         totalOrdered: alloc,
                         sparesCount: subSpares,
+                        price: nextPrice,
                       });
                     });
                     await Promise.all(tasks);

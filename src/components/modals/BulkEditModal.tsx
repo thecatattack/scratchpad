@@ -70,6 +70,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
   const [applyManufacturer, setApplyManufacturer] = useState(false);
   const [applyCostsMoney, setApplyCostsMoney] = useState(false);
   const [applyLink, setApplyLink] = useState(false);
+  const [applyPrice, setApplyPrice] = useState(false);
   const [applyNotes, setApplyNotes] = useState(false);
 
   // Draft values
@@ -95,6 +96,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
   const [customManufacturer, setCustomManufacturer] = useState('');
   const [costsMoney, setCostsMoney] = useState(true);
   const [vendorLink, setVendorLink] = useState('');
+  const [priceInput, setPriceInput] = useState('');
   const [notesMode, setNotesMode] = useState<'replace' | 'append'>('replace');
   const [notesText, setNotesText] = useState('');
 
@@ -138,6 +140,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
     setApplyManufacturer(false);
     setApplyCostsMoney(false);
     setApplyLink(false);
+    setApplyPrice(false);
     setApplyNotes(false);
 
     const first = selectedParts[0];
@@ -159,6 +162,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
     setCustomManufacturer('');
     setCostsMoney(true);
     setVendorLink('');
+    setPriceInput('');
     setNotesMode('replace');
     setNotesText('');
   }, [open, selectedParts]);
@@ -205,6 +209,7 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
     applyManufacturer ||
     applyCostsMoney ||
     applyLink ||
+    applyPrice ||
     applyNotes;
 
   const handleApplyBulkEdit = async (e: React.FormEvent) => {
@@ -334,6 +339,21 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
           (part.type === 'COTS' || part.source === 'Outsourced')
         ) {
           updates.vendorLink = vendorLink.trim().slice(0, 1000);
+        }
+        if (
+          applyPrice &&
+          (part.type === 'COTS' || part.source === 'Outsourced')
+        ) {
+          const trimmed = priceInput.trim();
+          if (!trimmed) {
+            updates.price = null;
+          } else {
+            const n = Number(trimmed);
+            updates.price =
+              Number.isFinite(n) && n >= 0
+                ? Math.round(Math.min(1000000, n) * 100) / 100
+                : null;
+          }
         }
         if (applyNotes) {
           const incomingNote = notesText.trim();
@@ -997,6 +1017,33 @@ export const BulkEditModal: React.FC<BulkEditModalProps> = ({
                   onChange={(e) => setVendorLink(e.target.value)}
                   placeholder="https://... (leave blank to clear)"
                   className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-xs"
+                />
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Unit Price */}
+          {summary.hasCots || summary.hasOutsourced ? (
+            <div className="p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 space-y-2">
+              <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={applyPrice}
+                  onChange={(e) => setApplyPrice(e.target.checked)}
+                  className="rounded border-zinc-400 text-red-600 focus:ring-red-500"
+                />
+                <span>Unit Price ($ USD) (COTS & Outsourced)</span>
+              </label>
+              {applyPrice ? (
+                <input
+                  type="number"
+                  min={0}
+                  max={1000000}
+                  step="0.01"
+                  value={priceInput}
+                  onChange={(e) => setPriceInput(e.target.value)}
+                  placeholder="0.00 (leave blank to clear)"
+                  className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#09090B] text-xs font-mono-tabular"
                 />
               ) : null}
             </div>

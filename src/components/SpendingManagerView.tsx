@@ -4,13 +4,15 @@ import {
   DollarSign,
   History,
   Image as ImageIcon,
+  Kanban,
   Layers,
+  LayoutGrid,
   Lock,
   Search,
   StickyNote,
 } from 'lucide-react';
 import { useApp, useProjectDetails } from '../context/AppContext';
-import { AggregatedPart } from '../types';
+import { AggregatedPart, PartStatus } from '../types';
 import {
   buildFlattenedMainParts,
   buildSubassemblyViewParts,
@@ -33,6 +35,7 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
   const [passInput, setPassInput] = useState('');
   const [passError, setPassError] = useState('');
   const [selectedSubId, setSelectedSubId] = useState<'main' | string>('main');
+  const [viewMode, setViewMode] = useState<'cards' | 'kanban'>('cards');
   const [searchQuery, setSearchQuery] = useState('');
   const [detailModal, setDetailModal] = useState<ActiveDetailModal>(null);
 
@@ -209,24 +212,262 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
     );
   }
 
+  const formatUsd = (amount: number) =>
+    new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+
+  const getEffectiveStatus = (p: AggregatedPart): PartStatus => {
+    const isInventorySparesOnly = p.source === 'Inventory';
+    if (
+      isInventorySparesOnly &&
+      p.status === 'Obtained' &&
+      p.totalOrdered === 0 &&
+      p.sparesRequested > 0
+    ) {
+      return 'Requested';
+    }
+    return p.status;
+  };
+
+  const getOrderQtyForEstimate = (p: AggregatedPart): number => {
+    if (p.totalOrdered > 0) return p.totalOrdered;
+    if (p.source === 'Inventory') return p.sparesRequested || 0;
+    return p.quantity + (p.sparesRequested || 0);
+  };
+
+  const getEstimatedLineCost = (p: AggregatedPart): number | null => {
+    if (typeof p.price !== 'number' || !Number.isFinite(p.price)) return null;
+    return Math.round(p.price * getOrderQtyForEstimate(p) * 100) / 100;
+  };
+
+  const queueEstimatedTotal = purchaseRequests.reduce((sum, p) => {
+    if (getEffectiveStatus(p) === 'Denied') return sum;
+    const est = getEstimatedLineCost(p);
+    return est !== null ? sum + est : sum;
+  }, 0);
+  const hasAnyPricedItem = purchaseRequests.some(
+    (p) => typeof p.price === 'number' && Number.isFinite(p.price)
+  );
+
+  const kanbanStatuses: PartStatus[] = [
+    'Requested',
+    ...(
+      [
+        'Needs Drawing',
+        'Needs CAM',
+        'Ready for Machine',
+        'In-Progress',
+      ] as PartStatus[]
+    ).filter((st) =>
+      purchaseRequests.some((p) => getEffectiveStatus(p) === st)
+    ),
+    'Shipping',
+    'Denied',
+    'Obtained',
+  ];
+
+  const renderCard = (p: AggregatedPart) => {
+    const isInventorySparesOnly = p.source === 'Inventory';
+    const pathway =
+      p.source === 'Outsourced'
+        ? 'Outsourced'
+        : isInventorySparesOnly
+        ? 'Inventory (Spares Only)'
+        : 'Purchased';
+    const supplier = p.type === 'COTS' ? p.vendor : p.manufacturer;
+    const effectiveStatus = getEffectiveStatus(p);
+    const hasPrice = typeof p.price === 'number' && Number.isFinite(p.price);
+    const estTotal = getEstimatedLineCost(p);
+
+    return (
+      <div
+        key={p.id}
+        className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317] p-4 space-y-3.5 flex flex-col justify-between"
+      >
+        <div className="space-y-2.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-snug">
+                {p.name}
+              </h3>
+              <div className="text-xs font-mono-tabular text-zinc-500">
+                {p.partNumber}
+                {p.type === 'Custom' && p.revision ? ` · Rev ${p.revision}` : ''}
+              </div>
+              {selectedSubId === 'main' ? (
+                <SubassemblyLabels part={p} compact />
+              ) : null}
+            </div>
+            <StatusLabel status={effectiveStatus} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="p-2 rounded-lg bg-zinc-50 dark:bg-[#09090B] border border-zinc-200/70 dark:border-zinc-800/80">
+              <span className="text-zinc-500 block">
+                {isInventorySparesOnly ? 'Spares to Buy' : 'Qty / Spares Req'}
+              </span>
+              <span className="font-mono-tabular font-semibold">
+                {isInventorySparesOnly
+                  ? `${p.sparesRequested} (${p.quantity} in stock)`
+                  : `${p.quantity} / ${p.sparesRequested}`}
+              </span>
+            </div>
+            <div className="p-2 rounded-lg bg-zinc-50 dark:bg-[#09090B] border border-zinc-200/70 dark:border-zinc-800/80">
+              <span className="text-zinc-500 block">Priority</span>
+              <PriorityLabel priority={p.priority} />
+            </div>
+            <div className="p-2 rounded-lg bg-zinc-50 dark:bg-[#09090B] border border-zinc-200/70 dark:border-zinc-800/80">
+              <span className="text-zinc-500 block">Unit Price</span>
+              <span className="font-mono-tabular font-semibold text-zinc-900 dark:text-white">
+                {hasPrice ? formatUsd(p.price as number) : '—'}
+              </span>
+            </div>
+            <div className="p-2 rounded-lg bg-zinc-50 dark:bg-[#09090B] border border-zinc-200/70 dark:border-zinc-800/80">
+              <span className="text-zinc-500 block">
+                Est. Total ({getOrderQtyForEstimate(p)} ea)
+              </span>
+              <span className="font-mono-tabular font-semibold text-zinc-900 dark:text-white">
+                {estTotal !== null ? formatUsd(estTotal) : '—'}
+              </span>
+            </div>
+          </div>
+
+          <div className="text-xs space-y-1">
+            <div>
+              <span className="text-zinc-500">Pathway: </span>
+              <span className="font-medium">{pathway}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">
+                {p.type === 'COTS' ? 'Vendor: ' : 'Manufacturer: '}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setDetailModal({ type: 'vendor-link', part: p })
+                }
+                className="font-semibold underline decoration-dotted underline-offset-4 hover:text-red-500"
+              >
+                {supplier || 'View Link'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() =>
+                setDetailModal({ type: 'notes', part: p, canEdit: false })
+              }
+              title="View Notes"
+              className="min-h-[40px] px-2.5 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-red-500 text-xs font-medium text-zinc-600 dark:text-zinc-300"
+            >
+              <StickyNote className="w-4 h-4" />
+              <span>Notes</span>
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setDetailModal({ type: 'history', part: p })
+              }
+              title="View Activity & History"
+              className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-red-500 text-zinc-500"
+            >
+              <History className="w-4 h-4" />
+            </button>
+            {p.pictureUrl ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setDetailModal({ type: 'picture', part: p, canEdit: false })
+                }
+                title="View Part Picture"
+                className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-red-500 text-red-500"
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+            ) : null}
+          </div>
+
+          <button
+            type="button"
+            onClick={() =>
+              setDetailModal({ type: 'approved-action', part: p })
+            }
+            className="min-h-[40px] px-3.5 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-all active:scale-[0.98]"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Approved</span>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-6 space-y-5">
-      <div>
-        <button
-          type="button"
-          onClick={() => onSelectProject(null)}
-          className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline"
-        >
-          ← All Projects
-        </button>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 dark:text-white mt-0.5">
-          {selectedProject.name} — Purchase Requests
-        </h1>
-        {selectedProject.description ? (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-2xl">
-            {selectedProject.description}
-          </p>
-        ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <button
+            type="button"
+            onClick={() => onSelectProject(null)}
+            className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline"
+          >
+            ← All Projects
+          </button>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 dark:text-white mt-0.5">
+            {selectedProject.name} — Purchase Requests
+          </h1>
+          {selectedProject.description ? (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-2xl">
+              {selectedProject.description}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {hasAnyPricedItem ? (
+            <div className="px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317] text-xs flex items-center gap-2">
+              <span className="text-zinc-500">Est. Active Spend:</span>
+              <span className="font-mono-tabular font-bold text-zinc-900 dark:text-white">
+                {formatUsd(queueEstimatedTotal)}
+              </span>
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-1 p-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317]">
+            <button
+              type="button"
+              onClick={() => setViewMode('cards')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold ${
+                viewMode === 'cards'
+                  ? 'bg-red-600 text-white'
+                  : 'text-zinc-500'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>Cards</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('kanban')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold ${
+                viewMode === 'kanban'
+                  ? 'bg-red-600 text-white'
+                  : 'text-zinc-500'
+              }`}
+            >
+              <Kanban className="w-3.5 h-3.5" />
+              <span>Kanban</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Subassembly Tabs + Search */}
@@ -286,135 +527,53 @@ export const SpendingManagerView: React.FC<SpendingManagerViewProps> = ({
           No active purchase requests for this selection. (Outsourced parts only
           appear here if marked as costing money.)
         </div>
-      ) : (
+      ) : viewMode === 'cards' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {purchaseRequests.map((p) => {
-            const isInventorySparesOnly = p.source === 'Inventory';
-            const pathway =
-              p.source === 'Outsourced'
-                ? 'Outsourced'
-                : isInventorySparesOnly
-                ? 'Inventory (Spares Only)'
-                : 'Purchased';
-            const supplier =
-              p.type === 'COTS' ? p.vendor : p.manufacturer;
+          {purchaseRequests.map(renderCard)}
+        </div>
+      ) : (
+        <div
+          className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${
+            kanbanStatuses.length <= 4
+              ? 'lg:grid-cols-4'
+              : 'lg:grid-cols-3 xl:grid-cols-4'
+          }`}
+        >
+          {kanbanStatuses.map((statusKey) => {
+            const col = purchaseRequests.filter(
+              (p) => getEffectiveStatus(p) === statusKey
+            );
+            const colSubtotal = col.reduce((sum, p) => {
+              const est = getEstimatedLineCost(p);
+              return est !== null ? sum + est : sum;
+            }, 0);
+            const colHasPrice = col.some(
+              (p) => typeof p.price === 'number' && Number.isFinite(p.price)
+            );
             return (
               <div
-                key={p.id}
-                className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#131317] p-4 space-y-3.5 flex flex-col justify-between"
+                key={statusKey}
+                className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-[#0E0E12] p-3.5 space-y-3"
               >
-                <div className="space-y-2.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-snug">
-                        {p.name}
-                      </h3>
-                      <div className="text-xs font-mono-tabular text-zinc-500">
-                        {p.partNumber}
-                        {p.type === 'Custom' && p.revision ? ` · Rev ${p.revision}` : ''}
-                      </div>
-                      {selectedSubId === 'main' ? (
-                        <SubassemblyLabels part={p} compact />
-                      ) : null}
-                    </div>
-                    <StatusLabel
-                      status={
-                        isInventorySparesOnly &&
-                        p.status === 'Obtained' &&
-                        p.totalOrdered === 0 &&
-                        p.sparesRequested > 0
-                          ? 'Requested'
-                          : p.status
-                      }
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="p-2 rounded-lg bg-zinc-50 dark:bg-[#09090B] border border-zinc-200/70 dark:border-zinc-800/80">
-                      <span className="text-zinc-500 block">
-                        {isInventorySparesOnly ? 'Spares to Buy' : 'Qty / Spares Req'}
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <StatusLabel status={statusKey} />
+                  <div className="flex items-center gap-2 text-xs font-mono-tabular text-zinc-500">
+                    {colHasPrice ? (
+                      <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                        {formatUsd(colSubtotal)}
                       </span>
-                      <span className="font-mono-tabular font-semibold">
-                        {isInventorySparesOnly
-                          ? `${p.sparesRequested} (${p.quantity} in stock)`
-                          : `${p.quantity} / ${p.sparesRequested}`}
-                      </span>
-                    </div>
-                    <div className="p-2 rounded-lg bg-zinc-50 dark:bg-[#09090B] border border-zinc-200/70 dark:border-zinc-800/80">
-                      <span className="text-zinc-500 block">Priority</span>
-                      <PriorityLabel priority={p.priority} />
-                    </div>
-                  </div>
-
-                  <div className="text-xs space-y-1">
-                    <div>
-                      <span className="text-zinc-500">Pathway: </span>
-                      <span className="font-medium">{pathway}</span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500">
-                        {p.type === 'COTS' ? 'Vendor: ' : 'Manufacturer: '}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDetailModal({ type: 'vendor-link', part: p })
-                        }
-                        className="font-semibold underline decoration-dotted underline-offset-4 hover:text-red-500"
-                      >
-                        {supplier || 'View Link'}
-                      </button>
-                    </div>
+                    ) : null}
+                    <span>{col.length}</span>
                   </div>
                 </div>
-
-                <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDetailModal({ type: 'notes', part: p, canEdit: false })
-                      }
-                      title="View Notes"
-                      className="min-h-[40px] px-3 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-red-500 text-xs font-medium text-zinc-600 dark:text-zinc-300"
-                    >
-                      <StickyNote className="w-4 h-4" />
-                      <span>Notes</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDetailModal({ type: 'history', part: p })
-                      }
-                      title="View Activity & History"
-                      className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-red-500 text-zinc-500"
-                    >
-                      <History className="w-4 h-4" />
-                    </button>
-                    {p.pictureUrl ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDetailModal({ type: 'picture', part: p, canEdit: false })
-                        }
-                        title="View Part Picture"
-                        className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-red-500 text-red-500"
-                      >
-                        <ImageIcon className="w-4 h-4" />
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDetailModal({ type: 'approved-action', part: p })
-                    }
-                    className="min-h-[44px] px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-all active:scale-[0.98]"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Approved</span>
-                  </button>
+                <div className="space-y-3">
+                  {col.length === 0 ? (
+                    <div className="text-xs text-zinc-500 text-center py-6">
+                      None
+                    </div>
+                  ) : (
+                    col.map(renderCard)
+                  )}
                 </div>
               </div>
             );

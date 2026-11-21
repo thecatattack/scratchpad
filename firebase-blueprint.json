@@ -375,6 +375,10 @@
           "type": "string",
           "maxLength": 1000
         },
+        "price": {
+          "type": "number",
+          "description": "Optional unit price in USD."
+        },
         "sparesRequested": {
           "type": "integer"
         },

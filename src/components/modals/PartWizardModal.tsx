@@ -84,6 +84,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
   const [inventoryQty, setInventoryQty] = useState(1);
   const [sparesToPurchase, setSparesToPurchase] = useState(0);
   const [splitVendorLink, setSplitVendorLink] = useState('');
+  const [splitUnitPrice, setSplitUnitPrice] = useState('');
   const [sendSplitRequestNow, setSendSplitRequestNow] = useState(true);
   const [vendorSelect, setVendorSelect] = useState(vendorsList[0] || 'Other');
   const [customVendor, setCustomVendor] = useState('');
@@ -126,6 +127,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
     setInventoryQty(1);
     setSparesToPurchase(0);
     setSplitVendorLink('');
+    setSplitUnitPrice('');
     setSendSplitRequestNow(true);
     setVendorSelect(vendorsList[0] || 'Other');
     setCustomVendor('');
@@ -168,6 +170,11 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           setInventoryQty(editingPart.quantity);
           setSparesToPurchase(editingPart.sparesRequested);
           setSplitVendorLink(editingPart.vendorLink || '');
+          setSplitUnitPrice(
+            typeof editingPart.price === 'number' && Number.isFinite(editingPart.price)
+              ? editingPart.price.toFixed(2)
+              : ''
+          );
           setSendSplitRequestNow(true);
         } else {
           setCotsPathway(
@@ -176,6 +183,11 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           setInventoryQty(Math.max(1, editingPart.quantity > 1 ? editingPart.quantity - 1 : 1));
           setSparesToPurchase(editingPart.sparesRequested || 0);
           setSplitVendorLink(editingPart.vendorLink || '');
+          setSplitUnitPrice(
+            typeof editingPart.price === 'number' && Number.isFinite(editingPart.price)
+              ? editingPart.price.toFixed(2)
+              : ''
+          );
           setSendSplitRequestNow(true);
         }
         if (vendorsList.includes(editingPart.vendor)) {
@@ -575,6 +587,10 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         priority,
         assignedMachinist: '',
         vendorLink: '',
+        price:
+          typeof editingPart?.price === 'number' && Number.isFinite(editingPart.price)
+            ? editingPart.price
+            : null,
         sparesRequested: 0,
         sparesCount: 0,
         totalMachined: 0,
@@ -582,6 +598,14 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
         machinesUsed: [],
         machiningNotes: '',
       };
+
+      const parsedSplitPrice = (() => {
+        const trimmed = splitUnitPrice.trim();
+        if (!trimmed) return null;
+        const n = Number(trimmed);
+        if (!Number.isFinite(n) || n < 0) return null;
+        return Math.round(Math.min(1000000, n) * 100) / 100;
+      })();
 
       const cleanupReplacedEditingFiles = async () => {
         if (!editingPart) return;
@@ -614,6 +638,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           costsMoney: true,
           status: 'Obtained' as const,
           vendorLink: splitVendorLink.trim().slice(0, 1000),
+          price: parsedSplitPrice,
           sparesRequested: cleanSparesToBuy,
         };
         if (editingPart) {
@@ -646,6 +671,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
           costsMoney: false,
           status: 'Obtained' as const,
           vendorLink: '',
+          price: null,
           sparesRequested: 0,
         };
         const purchasedPayload = {
@@ -657,6 +683,7 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
             ? ('Requested' as const)
             : ('Not Started' as const),
           vendorLink: splitVendorLink.trim().slice(0, 1000),
+          price: parsedSplitPrice,
           sparesRequested: cleanSparesToBuy,
         };
 
@@ -1082,17 +1109,35 @@ export const PartWizardModal: React.FC<PartWizardModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="space-y-1">
-                        <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                          Vendor Website Link (Optional)
-                        </label>
-                        <input
-                          type="url"
-                          value={splitVendorLink}
-                          onChange={(e) => setSplitVendorLink(e.target.value)}
-                          placeholder="https://www.andymark.com/..."
-                          className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#131317] text-xs"
-                        />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                            Vendor Website Link (Optional)
+                          </label>
+                          <input
+                            type="url"
+                            value={splitVendorLink}
+                            onChange={(e) => setSplitVendorLink(e.target.value)}
+                            placeholder="https://www.andymark.com/..."
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#131317] text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                            Unit Price ($ USD, Optional)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={1000000}
+                            step="0.01"
+                            value={splitUnitPrice}
+                            onChange={(e) => setSplitUnitPrice(e.target.value)}
+                            placeholder="0.00"
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#131317] text-xs font-mono-tabular"
+                          />
+                        </div>
                       </div>
 
                       {purchaseBomQty > 0 ? (

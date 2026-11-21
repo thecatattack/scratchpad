@@ -252,6 +252,16 @@ function sanitizePartFields(input: Record<string, unknown>): Record<string, unkn
       .map(sanitizeStoredFileRef)
       .filter((f): f is Record<string, unknown> => f !== null);
   }
+  if ('price' in out) {
+    if (out.price === null || out.price === undefined || out.price === '') {
+      out.price = null;
+    } else if (typeof out.price === 'number' && Number.isFinite(out.price)) {
+      out.price =
+        Math.round(Math.max(0, Math.min(1000000, out.price)) * 100) / 100;
+    } else {
+      out.price = null;
+    }
+  }
   return out;
 }
 

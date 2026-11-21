@@ -190,7 +190,7 @@ service cloud.firestore {
           'type', 'source', 'vendor', 'manufacturer', 'costsMoney', 'machines',
           'materialCategory', 'materialName', 'stockShape', 'dimensions', 'pictureUrl',
           'drawingPdf', 'attachedFiles', 'identicalGroupId', 'notes', 'status',
-          'priority', 'assignedMachinist', 'vendorLink', 'sparesRequested', 'sparesCount',
+          'priority', 'assignedMachinist', 'vendorLink', 'price', 'sparesRequested', 'sparesCount',
           'totalMachined', 'totalOrdered', 'machinesUsed', 'machiningNotes',
           'createdBy', 'createdByName', 'updatedBy', 'updatedByName',
           'requestedBy', 'requestedByName', 'requestedAt', 'createdAt', 'updatedAt'
@@ -223,6 +223,7 @@ service cloud.firestore {
         && data.priority in ['Low Priority', 'Regular Priority', 'High Priority', 'Critical Priority']
         && data.assignedMachinist is string && data.assignedMachinist.size() <= 80
         && data.vendorLink is string && data.vendorLink.size() <= 1000
+        && (!('price' in data) || data.price == null || (data.price is number && data.price >= 0 && data.price <= 1000000))
         && data.sparesRequested is number && data.sparesRequested >= 0 && data.sparesRequested <= 10000
         && data.sparesCount is number && data.sparesCount >= 0 && data.sparesCount <= 10000
         && data.totalMachined is number && data.totalMachined >= 0 && data.totalMachined <= 100000
@@ -381,7 +382,7 @@ service cloud.firestore {
                 'name', 'partNumber', 'revision', 'quantity', 'type', 'source', 'vendor', 'manufacturer',
                 'costsMoney', 'machines', 'materialCategory', 'materialName', 'stockShape',
                 'dimensions', 'pictureUrl', 'drawingPdf', 'attachedFiles', 'identicalGroupId',
-                'notes', 'status', 'priority', 'assignedMachinist', 'vendorLink',
+                'notes', 'status', 'priority', 'assignedMachinist', 'vendorLink', 'price',
                 'sparesRequested', 'sparesCount', 'totalMachined', 'totalOrdered', 'machinesUsed',
                 'machiningNotes', 'requestedBy', 'requestedByName', 'requestedAt',
                 'updatedBy', 'updatedByName', 'updatedAt'
