@@ -392,6 +392,47 @@ function collectPartSchemaFailures(
       }
     }
   }
+  const utf8Len = (s: string) => new TextEncoder().encode(s).length;
+  for (const [fKey, maxBytes] of [
+    ['name', 120],
+    ['partNumber', 60],
+    ['revision', 20],
+    ['vendor', 80],
+    ['manufacturer', 80],
+    ['materialName', 80],
+    ['pictureUrl', 2000],
+    ['identicalGroupId', 128],
+    ['notes', 2000],
+    ['assignedMachinist', 80],
+    ['vendorLink', 1000],
+    ['machiningNotes', 1000],
+    ['createdBy', 128],
+    ['createdByName', 120],
+    ['updatedBy', 128],
+    ['updatedByName', 120],
+    ['requestedBy', 128],
+    ['requestedByName', 120],
+  ] as const) {
+    const val = docData[fKey];
+    if (typeof val === 'string' && utf8Len(val) > maxBytes) {
+      failures.push(`utf8Bytes(${fKey})=${utf8Len(val)}>${maxBytes}`);
+    }
+  }
+  if (docData.drawingPdf && typeof docData.drawingPdf === 'object') {
+    const pdf = docData.drawingPdf as Record<string, unknown>;
+    if (typeof pdf.name === 'string' && utf8Len(pdf.name) > 200) {
+      failures.push(`utf8Bytes(pdf.name)=${utf8Len(pdf.name)}>200`);
+    }
+    if (typeof pdf.url === 'string' && utf8Len(pdf.url) > 2000) {
+      failures.push(`utf8Bytes(pdf.url)=${utf8Len(pdf.url)}>2000`);
+    }
+    if (typeof pdf.storagePath === 'string' && utf8Len(pdf.storagePath) > 500) {
+      failures.push(`utf8Bytes(pdf.storagePath)=${utf8Len(pdf.storagePath)}>500`);
+    }
+    if (typeof pdf.contentType === 'string' && utf8Len(pdf.contentType) > 120) {
+      failures.push(`utf8Bytes(pdf.contentType)=${utf8Len(pdf.contentType)}>120`);
+    }
+  }
   return failures;
 }
 
@@ -979,26 +1020,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         const failures: string[] = [];
         if (!user.emailVerified) failures.push('emailVerified=false');
         failures.push(...collectPartSchemaFailures(payload, projectId, subassemblyId));
+        let subExists = 'unknown';
         try {
-          const subSnap = await getDoc(
-            doc(db, 'projects', projectId, 'subassemblies', subassemblyId)
-          );
+          const subRef = doc(db, 'projects', projectId, 'subassemblies', subassemblyId);
+          const subSnap = await getDocFromServer(subRef).catch(() => getDoc(subRef));
+          subExists = String(subSnap.exists());
           if (!subSnap.exists()) {
             failures.push('parent subassembly does not exist in Firestore');
           }
         } catch (subErr) {
+          subExists = 'err';
           failures.push(
             `parentSubReadFailed: ${subErr instanceof Error ? subErr.message : String(subErr)}`
           );
         }
         if (failures.length === 0) {
           const tokenResult = await user.getIdTokenResult().catch(() => null);
+          const utf8Len = (s: string) => new TextEncoder().encode(s).length;
+          const picStr = typeof payload.pictureUrl === 'string' ? payload.pictureUrl : '';
+          const pdfObj =
+            payload.drawingPdf && typeof payload.drawingPdf === 'object'
+              ? (payload.drawingPdf as Record<string, unknown>)
+              : null;
+          const attArr = Array.isArray(payload.attachedFiles) ? payload.attachedFiles : [];
+          const att0 =
+            attArr.length > 0 && attArr[0] && typeof attArr[0] === 'object'
+              ? (attArr[0] as Record<string, unknown>)
+              : null;
+          const pdfSummary = pdfObj
+            ? `keys=[${Object.keys(pdfObj).join(',')}] nameB=${
+                typeof pdfObj.name === 'string' ? utf8Len(pdfObj.name) : -1
+              } urlB=${typeof pdfObj.url === 'string' ? utf8Len(pdfObj.url) : -1} pathB=${
+                typeof pdfObj.storagePath === 'string' ? utf8Len(pdfObj.storagePath) : -1
+              } size=${String(pdfObj.size)} ct=${String(pdfObj.contentType ?? 'none')}`
+            : 'null';
+          const attSummary = att0
+            ? `len=${attArr.length} att0Keys=[${Object.keys(att0).join(',')}] urlB=${
+                typeof att0.url === 'string' ? utf8Len(att0.url) : -1
+              } pathB=${
+                typeof att0.storagePath === 'string' ? utf8Len(att0.storagePath) : -1
+              } size=${String(att0.size)}`
+            : `len=${attArr.length}`;
           failures.push(
             `ALL_CLIENT_CHECKS_PASSED_CREATE uid=${user.uid} email=${
               user.email ?? 'none'
             } tokenEmailVerified=${String(
               tokenResult?.claims?.email_verified
-            )} payloadKeysCount=${Object.keys(payload).length}`
+            )} payloadKeysCount=${Object.keys(payload).length} subExists=${subExists} type=${String(
+              payload.type
+            )} src=${String(payload.source)} status=${String(
+              payload.status
+            )} reqAt=${isImmediateRequest ? 'serverTs' : 'null'} picB=${utf8Len(
+              picStr
+            )} pdf=(${pdfSummary}) att=(${attSummary})`
           );
         }
         handleFirestoreError(

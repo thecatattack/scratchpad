@@ -113,7 +113,7 @@ service cloud.firestore {
         && pdf.keys().hasAll(['name', 'size', 'url', 'storagePath'])
         && pdf.keys().hasOnly(['name', 'size', 'url', 'storagePath', 'contentType'])
         && pdf.name is string && pdf.name.size() >= 1 && pdf.name.size() <= 200
-        && pdf.size is number && pdf.size >= 0 && pdf.size <= 10485760
+        && pdf['size'] is number && pdf['size'] >= 0 && pdf['size'] <= 10485760
         && pdf.url is string && pdf.url.size() >= 1 && pdf.url.size() <= 2000
         && pdf.storagePath is string && pdf.storagePath.size() >= 1 && pdf.storagePath.size() <= 500
         && (!('contentType' in pdf) || pdf.contentType == null || (pdf.contentType is string && pdf.contentType.size() <= 120))
